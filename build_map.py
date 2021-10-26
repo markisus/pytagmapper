@@ -9,8 +9,8 @@ from project import *
 
 def main():
     parser = argparse.ArgumentParser(description='Build a map from images of tags.')
-    parser.add_argument('--input_data_dir', type=str, help='input data directory')
-    parser.add_argument('--output_data_dir', type=str, help='output data directory')
+    parser.add_argument('--input-data-dir', type=str, help='input data directory')
+    parser.add_argument('--output-data-dir', type=str, help='output data directory')
     args = parser.parse_args()
     
     data_dir = args.input_data_dir
@@ -58,24 +58,6 @@ def main():
         data_out,
         map_builder.viewpoint_ids,
         map_builder.txs_world_viewpoint)
-
-    # generate map viz
-    tag_corners_2d = get_corners_mat2d(data['tag_side_length'])
-    for tag_idx, tx_world_tag in enumerate(map_builder.txs_world_tag):
-        tag_id = map_builder.tag_ids[tag_idx]
-        world_corners = tx_world_tag @ tag_corners_2d
-        for i in range(4):
-            x1 = world_corners[0,i]
-            x2 = world_corners[0,(i+1)%4]
-            y1 = world_corners[1,i]
-            y2 = world_corners[1,(i+1)%4]
-            line = plt.Line2D((x1,x2), (y1,y2), lw=1.5)
-            plt.gca().add_line(line)
-
-        center = np.sum(world_corners, axis=1)/4
-        plt.text(center[0], center[1], str(tag_id))
-    plt.axis('scaled')
-    plt.show()
 
 if __name__ == "__main__":
     main()
