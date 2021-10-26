@@ -5,7 +5,7 @@ pytagmapper is a SLAM library for square fiducial tags in the style of AprilTag 
 
 Input Data Directory
 ====
-See example_data folder for an example scene.
+See [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder for an example scene.
 - `image_{id}.png` where id is an integer
 - `tags_{id}.txt` where id is an integer, corresponding to `image_{id}.png` (see Tags Txt Format below)
 - `camera_matrix.txt` row major camera matrix for the rectified camera used to take all the images
