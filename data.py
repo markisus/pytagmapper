@@ -8,21 +8,9 @@ import numpy as np
 def get_path(data_dir, filename):
     return os.path.join(data_dir, filename)
 
-def get_measurements_path(data_dir):
-    return os.path.join(data_dir, "measurements.txt")
-
-def get_camera_matrix_path(data_dir):
-    return os.path.join(data_dir, "camera_matrix.txt")
-
-def get_map_json_path(data_dir):
-    return os.path.join(data_dir, "map.json")
-
-def get_viewpoints_json_path(data_dir):
-    return os.path.join(data_dir, "viewpoints.json")
-
 def load_measurements(data_dir):
     measurements = []
-    with open(get_measurements_path(data_dir), "r") as f:
+    with open(get_path(data_dir, "measurements.txt"), "r") as f:
         for line in f.readlines():
             tokens = line.split(" ")
             tag_a = int(tokens[0])
@@ -50,7 +38,7 @@ def get_map_json(tag_side_length, tag_ids, txs_world_tag):
     return map_data
 
 def save_map_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
-    with open(get_map_json_path(data_dir), "w") as f:
+    with open(get_path(data_dir, "map.json"), "w") as f:
         json.dump(get_map_json(tag_side_length,
                                tag_ids,
                                txs_world_tag), f)
@@ -60,11 +48,11 @@ def save_viewpoints_json(data_dir, viewpoint_ids, txs_world_viewpoint):
     for viewpoint_id, tx_world_viewpoint in zip(viewpoint_ids, txs_world_viewpoint):
         data[viewpoint_id] = tx_world_viewpoint.tolist()
     
-    with open(get_viewpoints_json_path(data_dir), "w") as f:
+    with open(get_path(data_dir, "viewpoints.json"), "w") as f:
         json.dump(data, f)
         
 def load_map(data_dir):
-    with open(get_map_json_path(data_dir)) as f:
+    with open(get_path(data_dir, "map.json")) as f:
         data = json.load(f)
 
         # convert string keys to int keys
@@ -93,7 +81,7 @@ def parse_camera_matrix_file(f):
     return np.array(camera_matrix)
 
 def load_camera_matrix(data_dir = "data"):
-    with open(get_camera_matrix_path(data_dir), "r") as f:
+    with open(get_path(data_dir, "camera_matrix.txt"), "r") as f:
         return parse_camera_matrix_file(f)
 
 def load_tag_side_length(data_dir = "data"):
