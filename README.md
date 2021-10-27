@@ -17,6 +17,7 @@ Demo
     cd pytagmapper
     python build_map.py --input-data-dir example_data --output-data-dir example_map
     python show_map.py --map-dir example_map
+![screenshot](https://github.com/markisus/pytagmapper/blob/main/demo.png)
     
 Prepare Your Own Input Data Using ArUco
 ====
