@@ -106,13 +106,18 @@ def load_data(data_dir = "data"):
 
     return data
 
-def load_images(data_dir = "data"):
-    data = {}
+def get_image_paths(data_dir = "data"):
+    image_paths = {}
     for file_path in glob.glob(os.path.join(data_dir, "image_*.png")):
         file_name = os.path.splitext(os.path.split(file_path)[-1])[0]
         file_id = int(file_name.split("_")[-1])
-        data[file_id] = cv2.cvtColor(cv2.imread(file_path), cv2.COLOR_BGR2RGB)
+        image_paths[file_id] = file_path
+    return image_paths
 
+def load_images(data_dir = "data"):
+    data = {}
+    for file_id, file_path in get_image_paths(data_dir).items():
+        data[file_id] = cv2.cvtColor(cv2.imread(file_path), cv2.COLOR_BGR2RGB)
     return data
 
 def parse_tag_file(f):
