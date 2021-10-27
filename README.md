@@ -5,7 +5,7 @@ pytagmapper is a SLAM library for square fiducial tags in the style of AprilTag 
 
 Input Data Directory
 ====
-See example_data folder for an example scene.
+See [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder for an example scene.
 - `image_{id}.png` where id is an integer
 - `tags_{id}.txt` where id is an integer, corresponding to `image_{id}.png` (see Tags Txt Format below)
 - `camera_matrix.txt` row major camera matrix for the camera used to take all the images
@@ -45,5 +45,4 @@ Run `python pytagmapper/make_aruco_tag_txts.py --image-dir ~/my_map_data --show_
 Then build and display the map.
     cd pytagmapper
     python build_map.py --input-data-dir ~/my_map_data --output-data-dir ~/my_map
-    python show_map.py --map-dir ~/my_map
-    
+    python show_map.py --map-dir ~/my_map    
