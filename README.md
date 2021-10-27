@@ -47,3 +47,23 @@ Then build and display the map.
     [tag bottom right pixel x] [tag bottom right pixel y]
     [tag bottom left pixel x] [tag bottom left y]
     ...
+    
+ Output Map Format
+ =====
+ `build_map.py` generates a directory containing `map.json` and `viewpoints.json`.  
+ map.json Schema
+ ----
+    {
+        'tag_side_length': (float),
+        'tag_locations': {
+            tag_id (str): [x (float), y (float), yaw (float, radians)],
+            ...
+         }
+    }
+viewpoints.json Schema
+----
+    {
+        image_id (str): (row major 4x4 pose matrix as list of list),
+        ...
+    }
+ 
