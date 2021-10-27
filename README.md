@@ -33,7 +33,6 @@ Then build and display the map.
     
 
 # Tags Txt Format
-====
 `tags_{id}.txt` is a file containing a list of all tags detected `image_{id}.png`
 
     [tag id A]
