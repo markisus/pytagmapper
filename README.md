@@ -51,6 +51,7 @@ Then build and display the map.
  Output Map Format
  =====
  `build_map.py` generates a directory containing `map.json` and `viewpoints.json`.  
+ 
  map.json Schema
  ----
     {
