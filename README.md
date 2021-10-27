@@ -34,7 +34,7 @@ Then build and display the map.
     
 
 # Tags Txt Format
-`tags_{id}.txt` is a file containing a list of all tags detected `image_{id}.png`
+`tags_{id}.txt` is a file containing a list of all tags detected `image_{id}.png`. See [example_data/tags_0.txt](https://github.com/markisus/pytagmapper/blob/main/example_data/tags_0.txt) for an example.
 
     [tag id A]
     [tag top left pixel x] [tag top left pixel y]
