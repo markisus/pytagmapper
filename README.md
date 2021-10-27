@@ -1,7 +1,11 @@
 pytagmapper
 ====
 
-pytagmapper is a python3 SLAM library for square fiducial tags in the style of AprilTag and ArUco tags. Given a set tags with unknown poses lying in a plane, and a set of pixel detections in images from unknown camera views, pytagmapper will back out both the pose of each tag and the pose of each camera view.
+pytagmapper is a python3 SLAM library for square fiducial tags in the style of AprilTag and ArUco tags. Given a set tags with unknown poses lying in a plane, and a set of pixel detections in images from unknown camera views, pytagmapper will back out both the pose of each tag and the pose of each camera view.  
+
+Demo
+====
+This [demo](https://github.com/markisus/pytagmapper/tree/main/DEMO.md) creates a map out of the images located in the [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder.  
 
 Input Data Directory
 ====
@@ -11,9 +15,6 @@ See [example_data](https://github.com/markisus/pytagmapper/tree/main/example_dat
 - `camera_matrix.txt` row major camera matrix for the camera used to take all the images
 - `tag_side_length.txt` physical side length of the tags in meters
 
-Demo
-====
-This [demo](https://github.com/markisus/pytagmapper/tree/main/DEMO.md) creates a map out of the images located in the [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder.
     
 Prepare Your Own Input Data Using ArUco
 ====
