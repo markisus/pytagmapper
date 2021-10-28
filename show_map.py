@@ -1,6 +1,5 @@
 import argparse
 import math
-from map_builder import MapBuilder
 from data import *
 from geometry import *
 import numpy as np
