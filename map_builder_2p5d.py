@@ -79,10 +79,18 @@ class MapBuilder2p5d:
             [0,  0,  0, 1],
         ])
 
-    def add_viewpoint(self, viewpoint_id, tags):
+    def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None):
         self.viewpoint_id_to_idx[viewpoint_id] = len(self.viewpoint_ids)
         self.viewpoint_ids.append(viewpoint_id)
-        self.txs_world_viewpoint.append(self.init_viewpoint)
+
+        if not init_viewpoint:
+            if self.txs_world_viewpoint:
+                # use the previously added viewpoint as a guess
+                init_viewpoint = self.txs_world_viewpoint[-1]
+            else:
+                init_viewpoint = self.init_viewpoint
+        
+        self.txs_world_viewpoint.append(init_viewpoint)
         self.viewpoint_infos.append(InfoState6())
         viewpoint_idx = self.viewpoint_id_to_idx[viewpoint_id]
         viewpoint_detections_start = len(self.detections)

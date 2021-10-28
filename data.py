@@ -46,7 +46,7 @@ def get_map2p5d_json(tag_side_length, tag_ids, txs_world_tag):
     }
     
     for tag_idx, tx_world_tag in enumerate(txs_world_tag):
-        # convert to xyt
+        # convert to xytz
         x_dir = tx_world_tag[0,0]
         y_dir = tx_world_tag[1,0]
         theta = math.atan2(y_dir, x_dir)

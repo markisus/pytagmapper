@@ -20,6 +20,20 @@ def xyt_to_SE3(xyt):
         [ 0,   0, 0, 1],
     ])
 
+def xytz_to_SE3(xytz):
+    x = xytz[0,0]
+    y = xytz[1,0]
+    t = xytz[2,0]
+    z = xytz[3,0]
+    ct = math.cos(t)
+    st = math.sin(t)
+    return np.array([
+        [ct, -st, 0, x],
+        [st,  ct, 0, y],
+        [ 0,   0, 1, z],
+        [ 0,   0, 0, 1],
+    ])
+
 def xyt_to_SE2(xyt):
     x = xyt[0,0]
     y = xyt[1,0]

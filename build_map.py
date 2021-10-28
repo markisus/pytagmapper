@@ -65,10 +65,13 @@ def main():
         if prev_error != float('inf'):
             delta = error - prev_error
             change = delta/prev_error
-            print("viewpoints", next_viewpoint_idx,
-                  "error", error, "change", change*100, "%")
+            avg_det_error = error / len(map_builder.detections)
 
-            if abs(change) < 1e-3 and improved:
+            print("viewpoints", next_viewpoint_idx,
+                  "error", error, "avg_error", avg_det_error, "change", change*100, "%")
+
+            viewpoint_converged = improved and (abs(change) < 1e-5 or avg_det_error < 10)
+            if viewpoint_converged:
                 if next_viewpoint_idx+1 < len(viewpoint_ids):
                     need_add_viewpoint = True
                 elif abs(change) < 1e-6:
