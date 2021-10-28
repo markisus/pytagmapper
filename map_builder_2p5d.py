@@ -33,6 +33,7 @@ def huber_error(k, residual):
 class MapBuilder2p5d:
     def __init__(self, camera_matrix, tag_side_length):
         self.regularizer = 1e9
+        self.streak = 0
         
         self.camera_matrix = np.array(camera_matrix)
         self.inverse_pixel_cov = (1.0/10)**2
@@ -146,9 +147,22 @@ class MapBuilder2p5d:
 
         curr_error = self.get_total_detection_error()
         if curr_error < prev_error:
-            self.regularizer *= 0.5
+            if self.streak > 10:
+                self.regularizer *= 0.5                
+            elif self.streak > 7:
+                self.regularizer *= 0.7
+            elif self.streak > 5:
+                self.regularizer *= 0.9
+            else:
+                self.regularizer *= 0.99
         else:
             self.regularizer *= 25.0
+
+        # if curr_error < prev_error:
+        #     self.regularizer *= 0.5
+        # else:
+        #     self.regularizer *= 3.0
+            
 
         self.regularizer = max(self.regularizer, 10)
         self.regularizer = min(self.regularizer, 1e6)
@@ -204,13 +218,14 @@ class MapBuilder2p5d:
 
         if not self.relinearize():
             # no improvement, restore the previous linearization point
-            # print("no improvement. regularizer is now", self.regularizer)
+            self.streak = 0
             self.txs_world_viewpoint = txs_world_viewpoint_backup
             self.txs_world_tag = txs_world_tag_backup
             self.relinearize()
             return False
 
         # print("improvement. regularizer is now", self.regularizer)
+        self.streak += 1
         return True
 
     def send_detection_to_viewpoint_msgs(self):

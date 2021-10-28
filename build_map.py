@@ -35,13 +35,27 @@ def main():
     else:
         print("invalid mode", args.mode)
 
-    for viewpoint_id, tags in data["viewpoints"].items():
-        map_builder.add_viewpoint(viewpoint_id, tags)
-    map_builder.relinearize()
+    viewpoint_ids = list(data["viewpoints"].keys())
+    next_viewpoint_idx = 0
+    need_add_viewpoint = True
+
+    # for viewpoint_id, tags in data["viewpoints"].items():
+    #     map_builder.add_viewpoint(viewpoint_id, tags)
+    # map_builder.relinearize()
+    print("Starting")
 
     prev_error = float('inf')
-    for j in range(1000):
-        for i in range(30):
+    while True:
+        if need_add_viewpoint:
+            viewpoint_id = viewpoint_ids[next_viewpoint_idx]
+            tags = data["viewpoints"][viewpoint_id]
+            map_builder.add_viewpoint(viewpoint_id, tags)
+            print("Added viewpoint", viewpoint_id)
+            map_builder.relinearize()
+            need_add_viewpoint = False
+            next_viewpoint_idx += 1            
+        
+        for i in range(20):
             map_builder.send_detection_to_viewpoint_msgs()
             map_builder.send_detection_to_tag_msgs()
         improved = map_builder.update()
@@ -50,9 +64,15 @@ def main():
         if prev_error != float('inf'):
             delta = error - prev_error
             change = delta/prev_error
-            print("iteration", j, "error", error, "change", change*100, "%")
-            if abs(change) < 1e-6 and improved:
-                break
+            print("viewpoints", next_viewpoint_idx,
+                  "error", error, "change", change*100, "%")
+
+            if abs(change) < 1e-3 and improved:
+                if next_viewpoint_idx+1 < len(viewpoint_ids):
+                    need_add_viewpoint = True
+                elif abs(change) < 1e-6:
+                    # no more viewpoints and converged
+                    break
 
         prev_error = error
 
