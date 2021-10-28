@@ -13,8 +13,15 @@ def main():
     args = parser.parse_args()
 
     map_data = load_map(args.map_dir)
-    tag_corners_2d = get_corners_mat2d(map_data['tag_side_length'])
-    for tag_id, xyt_world_tag in map_data['tag_locations'].items():
+    tag_side_length = map_data['tag_side_length']
+    tag_corners_2d = get_corners_mat2d(tag_side_length)
+    map_type = map_data['map_type']
+    for tag_id, pose_world_tag in map_data['tag_locations'].items():
+        if map_type == '2.5d':
+            xyt_world_tag = pose_world_tag[:3]
+        else:
+            xyt_world_tag = pose_world_tag
+
         tx_world_tag = xyt_to_SE2(np.array([xyt_world_tag]).T)
         world_corners = tx_world_tag @ tag_corners_2d
         for i in range(4):
@@ -27,6 +34,11 @@ def main():
 
         center = np.sum(world_corners, axis=1)/4
         plt.text(center[0], center[1], str(tag_id))
+
+        if map_type == '2.5d':
+            z = "{:#.4g}".format(pose_world_tag[3])
+            plt.text(center[0], center[1] - tag_side_length/2, f"z={z}")
+        
     plt.axis('scaled')
     plt.show()
 

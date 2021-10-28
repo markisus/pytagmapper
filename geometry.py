@@ -128,6 +128,24 @@ def SE3_inv(SE3):
     result[3,:] = [0, 0, 0, 1]
     return result
 
+def fix_SE3(SE3):
+    Rx = SE3[:3, 0]
+    Ry = SE3[:3, 1]
+    Rz = SE3[:3, 2]
+
+    Rz = np.cross(Rx, Ry)
+    Ry = np.cross(Rz, Rx)
+
+    Rx /= np.linalg.norm(Rx)
+    Ry /= np.linalg.norm(Ry)
+    Rz /= np.linalg.norm(Rz)
+
+    SE3[:3, 0] = Rx
+    SE3[:3, 1] = Ry
+    SE3[:3, 2] = Rz
+
+    SE3[3, :] = [0,0,0,1]
+
 def SE2_inv(SE2):
     result = np.empty((3,3))
     result[:2,:2] = SE2[:2,:2].T
@@ -225,3 +243,13 @@ if __name__ == "__main__":
     # check se2 wz
     se2 = np.array([[1, 0, 0]]).T
     print(se2_exp(se2))
+
+    SE3 = np.array([
+        [0.59, 0.80, 0,     0],
+        [1.3, 1.80, 0, -0.01],
+        [0, 0, 1, -0.01],
+        [0, 0, 0,     1],
+    ])
+
+    fix_SE3(SE3)
+    print("Fixed SE3\n", SE3)
