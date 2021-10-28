@@ -35,7 +35,7 @@ def main():
     else:
         print("invalid mode", args.mode)
 
-    viewpoint_ids = list(data["viewpoints"].keys())
+    viewpoint_ids = sorted(data["viewpoints"].keys())
     next_viewpoint_idx = 0
     need_add_viewpoint = True
 
@@ -46,6 +46,7 @@ def main():
 
     prev_error = float('inf')
     while True:
+        need_add_viewpoint = need_add_viewpoint or (args.mode == '2d' and next_viewpoint_idx + 1 < len(viewpoint_ids))
         if need_add_viewpoint:
             viewpoint_id = viewpoint_ids[next_viewpoint_idx]
             tags = data["viewpoints"][viewpoint_id]
@@ -77,6 +78,10 @@ def main():
         prev_error = error
 
     print("Saving to", data_out)
+    save_viewpoints_json(
+            data_out,
+            map_builder.viewpoint_ids,
+            map_builder.txs_world_viewpoint)
 
     if args.mode == '2.5d':
         save_map2p5d_json(
@@ -85,10 +90,11 @@ def main():
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     else:
-        save_viewpoints_json(
+        save_map_json(
             data_out,
-            map_builder.viewpoint_ids,
-            map_builder.txs_world_viewpoint)
+            map_builder.tag_side_length,
+            map_builder.tag_ids,
+            map_builder.txs_world_tag)
 
 if __name__ == "__main__":
     main()

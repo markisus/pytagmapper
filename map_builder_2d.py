@@ -8,6 +8,7 @@ from heuristics import *
 class MapBuilder2D:
     def __init__(self, camera_matrix, tag_side_length):
         self.regularizer = 1e6
+        self.streak = 0
         
         self.camera_matrix = np.array(camera_matrix)
         self.inverse_pixel_cov = (1.0/10)**2
@@ -106,12 +107,26 @@ class MapBuilder2D:
             self.detection_errors[i] = self.inverse_pixel_cov * np.dot(residual.T, residual)[0,0]
 
         curr_error = self.get_total_detection_error()
+        curr_error = self.get_total_detection_error()
         if curr_error < prev_error:
-            self.regularizer *= 0.5
+            if self.streak > 10:
+                self.regularizer *= 0.5                
+            elif self.streak > 7:
+                self.regularizer *= 0.7
+            elif self.streak > 5:
+                self.regularizer *= 0.9
+            else:
+                self.regularizer *= 0.99
         else:
-            self.regularizer *= 3.0
+            self.regularizer *= 25.0
+        
+        # if curr_error < prev_error:
+        #     self.regularizer *= 0.5
+        # else:
+        #     self.regularizer *= 3.0
 
         self.regularizer = max(self.regularizer, 1e-9)
+        self.regularizer = min(self.regularizer, 1e9)
 
         # clear all messages and states
         # since these are not valid for the new linearization point
@@ -133,6 +148,10 @@ class MapBuilder2D:
         return sum(self.detection_errors)
 
     def update(self):
+        # copy linearization point
+        txs_world_viewpoint_backup = [tx.copy() for tx in self.txs_world_viewpoint]
+        txs_world_tag_backup = [tx.copy() for tx in self.txs_world_tag]
+        
         for viewpoint_idx, viewpoint_info in enumerate(self.viewpoint_infos):
             delta = np.linalg.solve(viewpoint_info.matrix, viewpoint_info.vector)
             self.txs_world_viewpoint[viewpoint_idx] = self.txs_world_viewpoint[viewpoint_idx] @ se3_exp(delta)
@@ -153,7 +172,17 @@ class MapBuilder2D:
             self.txs_world_tag[i] = tx2_tag0_world @ self.txs_world_tag[i]
             fix_SE2(self.txs_world_tag[i]) # fix SE2 numerical error buildup
 
-        return self.relinearize()
+        if not self.relinearize():
+            # no improvement, restore the previous linearization point
+            self.streak = 0
+            self.txs_world_viewpoint = txs_world_viewpoint_backup
+            self.txs_world_tag = txs_world_tag_backup
+            self.relinearize()
+            # print("no improvement. regularizer is now", self.regularizer)
+            return False
+
+        self.streak += 1            
+        return True
 
     def send_detection_to_viewpoint_msgs(self):
         for detection_idx, (tag_idx, viewpoint_idx, _) in enumerate(self.detections):
