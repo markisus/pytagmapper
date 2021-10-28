@@ -15,3 +15,10 @@ Commands
  ----
     
 ![map screenshot](https://github.com/markisus/pytagmapper/blob/main/demo.png)
+
+Inside Out Tracking
+=====
+After building the map, you can run inside out tracking, see [inside_out_tracker_demo.py](https://github.com/markisus/pytagmapper/blob/main/inside_out_tracker_demo.py).
+
+https://user-images.githubusercontent.com/469689/139331966-fc9a8298-25d5-4b53-8dd2-faf51bb9b8ec.mp4
+
