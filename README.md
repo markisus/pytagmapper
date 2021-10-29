@@ -5,7 +5,7 @@ pytagmapper is a python3 SLAM library for square fiducial tags in the style of A
 
 Demo
 ====
-This [demo](https://github.com/markisus/pytagmapper/tree/main/DEMO.md) creates a map out of the images located in the [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder.  
+This [demo](https://github.com/markisus/pytagmapper/tree/main/DEMO.md) creates a map out of the images located in the [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder and runs inside out tracking.
 
 Input Data Directory
 ====
