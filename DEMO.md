@@ -20,5 +20,7 @@ Inside Out Tracking
 =====
 After building the map, you can run inside out tracking, see [inside_out_tracker_demo.py](https://github.com/markisus/pytagmapper/blob/main/inside_out_tracker_demo.py).
 
-https://user-images.githubusercontent.com/469689/139331966-fc9a8298-25d5-4b53-8dd2-faf51bb9b8ec.mp4
+
+
+https://user-images.githubusercontent.com/469689/139487287-1faedbd3-6c03-4f87-8340-1811aaefe209.mp4
 
