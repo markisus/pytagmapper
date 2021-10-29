@@ -4,6 +4,7 @@ from data import *
 from geometry import *
 from project import *
 from inside_out_tracker import InsideOutTracker
+from rolling_mean_var import RollingMeanVar
 
 def main():
     parser = argparse.ArgumentParser(description='Demo inside out tracking on a map.')
@@ -89,6 +90,10 @@ def main():
 
     tracker_initted = False
     tracker = InsideOutTracker(camera_matrix, map_data)
+
+    mv_x = RollingMeanVar(10)
+    mv_y = RollingMeanVar(10)
+    mv_z = RollingMeanVar(10)
 
     while True:
         ret, frame = camera.read()
@@ -187,14 +192,21 @@ def main():
 
         rotation_y = 90
         cv2.putText(topdown_viz, str("Rotation"), (10, rotation_y), 0, 0.5, (255, 255, 255), thickness=1)
-        cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[0,:]), (10, rotation_y + 15), 0, 0.5, (255, 255, 255), thickness=1)
-        cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[1,:]), (10, rotation_y + 2*15), 0, 0.5, (255, 255, 255), thickness=1)
-        cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[2,:]), (10, rotation_y + 3*15), 0, 0.5, (255, 255, 255), thickness=1)
+        cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[0,:3]), (10, rotation_y + 15), 0, 0.5, (255, 255, 255), thickness=1)
+        cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[1,:3]), (10, rotation_y + 2*15), 0, 0.5, (255, 255, 255), thickness=1)
+        cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[2,:3]), (10, rotation_y + 3*15), 0, 0.5, (255, 255, 255), thickness=1)
 
-        xyz_y = rotation_y + 4*15
+        xyz_y = rotation_y + 5*15
         cv2.putText(topdown_viz, str("XYZ"), (10, xyz_y), 0, 0.5, (255, 255, 255), thickness=1)
         cv2.putText(topdown_viz, str(tracker.tx_world_viewpoint[:3,3]), (10, xyz_y + 15), 0, 0.5, (255, 255, 255), thickness=1)
 
+        mv_x.add_datum(tracker.tx_world_viewpoint[0,3])
+        mv_y.add_datum(tracker.tx_world_viewpoint[1,3])
+        mv_z.add_datum(tracker.tx_world_viewpoint[2,3])
+
+        cv2.putText(topdown_viz, f"X mean std {mv_x.mean:#.4g} {mv_x.var**0.5:#.4g}", (10, xyz_y + 30), 0, 0.5, (255, 255, 255), thickness=1)
+        cv2.putText(topdown_viz, f"Y mean std {mv_y.mean:#.4g} {mv_y.var**0.5:#.4g}", (10, xyz_y + 45), 0, 0.5, (255, 255, 255), thickness=1)
+        cv2.putText(topdown_viz, f"Z mean std {mv_z.mean:#.4g} {mv_z.var**0.5:#.4g}", (10, xyz_y + 60), 0, 0.5, (255, 255, 255), thickness=1)
         
         cv2.imshow('Inside Out Tracking Demo', topdown_viz)
 
