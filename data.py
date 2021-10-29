@@ -58,6 +58,19 @@ def get_map2p5d_json(tag_side_length, tag_ids, txs_world_tag):
 
     return map_data
 
+def get_map3d_json(tag_side_length, tag_ids, txs_world_tag):
+    map_data = {
+        'tag_side_length': tag_side_length,
+        'tag_locations': {},
+        'map_type': '3d'
+    }
+    
+    for tag_idx, tx_world_tag in enumerate(txs_world_tag):
+        tag_id = tag_ids[tag_idx]
+        map_data['tag_locations'][tag_id] = tx_world_tag.tolist()
+
+    return map_data
+
 
 def save_map_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
     with open(get_path(data_dir, "map.json"), "w") as f:
@@ -70,6 +83,12 @@ def save_map2p5d_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
         json.dump(get_map2p5d_json(tag_side_length,
                                    tag_ids,
                                    txs_world_tag), f)
+
+def save_map3d_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
+    with open(get_path(data_dir, "map.json"), "w") as f:
+        json.dump(get_map3d_json(tag_side_length,
+                                 tag_ids,
+                                 txs_world_tag), f)
 
 def save_viewpoints_json(data_dir, viewpoint_ids, txs_world_viewpoint):
     data = {}

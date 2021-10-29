@@ -1,7 +1,8 @@
 import argparse
 import math
-from map_builder_2d import MapBuilder
+from map_builder_2d import MapBuilder2d
 from map_builder_2p5d import MapBuilder2p5d
+from map_builder_3d import MapBuilder3d
 from data import *
 from geometry import *
 import numpy as np
@@ -29,9 +30,12 @@ def main():
     if args.mode == '2.5d':
         map_builder = MapBuilder2p5d(data['camera_matrix'],
                                      data['tag_side_length'])
+    elif args.mode == '3d':
+        map_builder = MapBuilder3d(data['camera_matrix'],
+                                   data['tag_side_length'])
     elif args.mode == '2d':
-        map_builder = MapBuilder(data['camera_matrix'],
-                                 data['tag_side_length'])
+        map_builder = MapBuilder2d(data['camera_matrix'],
+                                   data['tag_side_length'])
     else:
         print("invalid mode", args.mode)
 
@@ -86,7 +90,13 @@ def main():
             map_builder.viewpoint_ids,
             map_builder.txs_world_viewpoint)
 
-    if args.mode == '2.5d':
+    if args.mode == '3d':
+        save_map3d_json(
+            data_out,
+            map_builder.tag_side_length,
+            map_builder.tag_ids,
+            map_builder.txs_world_tag)
+    elif args.mode == '2.5d':
         save_map2p5d_json(
             data_out,
             map_builder.tag_side_length,

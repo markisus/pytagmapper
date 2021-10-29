@@ -15,7 +15,10 @@ class InsideOutTracker:
         self.txs_world_tag = {}
 
         self.map_type = map_data['map_type']
-        if self.map_type == '2.5d':
+        if self.map_type == '3d':
+            for tag_id, tx_world_tag in self.tag_locations.items():
+                self.txs_world_tag[tag_id] = np.array(tx_world_tag)
+        elif self.map_type == '2.5d':
             for tag_id, xytz_world_tag in self.tag_locations.items():
                 self.txs_world_tag[tag_id] = \
                     xytz_to_SE3(np.array([xytz_world_tag]).T)

@@ -15,6 +15,7 @@ def main():
     args = parser.parse_args()
 
     map_data = load_map(args.map_dir)
+    map_type = map_data['map_type']
     tag_side_length = map_data['tag_side_length']
     camera_matrix = load_camera_matrix(args.camera_matrix_dir)
     aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
@@ -38,12 +39,18 @@ def main():
     tag_max_y = -float('inf')
 
     for pose_world_tag in map_data['tag_locations'].values():
+        if map_type != '3d':
             x = pose_world_tag[0]
             y = pose_world_tag[1]
-            tag_min_x = min(x, tag_min_x)
-            tag_min_y = min(y, tag_min_x)
-            tag_max_x = max(x, tag_max_x)
-            tag_max_y = max(y, tag_max_x)
+        else:
+            pose_world_tag = np.array(pose_world_tag)
+            x = pose_world_tag[0,3]
+            y = pose_world_tag[1,3]
+            
+        tag_min_x = min(x, tag_min_x)
+        tag_min_y = min(y, tag_min_x)
+        tag_max_x = max(x, tag_max_x)
+        tag_max_y = max(y, tag_max_x)
 
     map_dimension = max(tag_max_x - tag_min_x, tag_max_y - tag_min_y)
     viz_height = 10
