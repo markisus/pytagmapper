@@ -28,9 +28,6 @@ def huber_error(k, residual):
 
 # 6dof dimensional tag poses SE3
 class MapBuilder:
-    DIM_VIEWPOINT_POSE = 6
-    DIM_TAG_POSE = 6
-    
     def __init__(self, camera_matrix, tag_side_length, map_type = "2d"):
         self.map_type = map_type
 
