@@ -1,10 +1,10 @@
+from pytagmapper.data import *
+from pytagmapper.geometry import *
+from pytagmapper.project import *
 import argparse
 import math
-from data import *
-from geometry import *
-import numpy as np
 import matplotlib.pyplot as plt
-from project import *
+import numpy as np
 
 def main():
     parser = argparse.ArgumentParser(description='Plot a tag map.')

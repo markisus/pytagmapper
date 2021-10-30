@@ -1,10 +1,10 @@
 import argparse
 import cv2
-from data import *
-from geometry import *
-from project import *
-from inside_out_tracker import InsideOutTracker
-from rolling_mean_var import RollingMeanVar
+from pytagmapper.data import *
+from pytagmapper.geometry import *
+from pytagmapper.project import *
+from pytagmapper.inside_out_tracker import InsideOutTracker
+from pytagmapper.rolling_mean_var import RollingMeanVar
 
 def main():
     parser = argparse.ArgumentParser(description='Demo inside out tracking on a map.')

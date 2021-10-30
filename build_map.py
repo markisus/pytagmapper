@@ -1,14 +1,11 @@
+from pytagmapper.data import *
+from pytagmapper.geometry import *
+from pytagmapper.map_builder import *
+from pytagmapper.project import *
 import argparse
 import math
-from map_builder import MapBuilder
-from map_builder_2d import MapBuilder2d
-from map_builder_2p5d import MapBuilder2p5d
-from map_builder_3d import MapBuilder3d
-from data import *
-from geometry import *
-import numpy as np
 import matplotlib.pyplot as plt
-from project import *
+import numpy as np
 
 def main():
     parser = argparse.ArgumentParser(description='Build a map from images of tags.')

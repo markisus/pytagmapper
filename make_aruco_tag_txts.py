@@ -1,5 +1,5 @@
 import argparse
-from data import *
+from pytagmapper.data import *
 import cv2
 
 def main():

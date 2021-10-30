@@ -1,8 +1,8 @@
 import numpy as np
-from geometry import *
-from project import *
-from data import *
-from heuristics import *
+from pytagmapper.geometry import *
+from pytagmapper.project import *
+from pytagmapper.data import *
+from pytagmapper.heuristics import *
 
 class InsideOutTracker:
     def __init__(self, camera_matrix, map_data,

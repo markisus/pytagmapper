@@ -1,5 +1,5 @@
 import numpy as np
-from geometry import *
+from pytagmapper.geometry import *
 
 def get_corners_mat(size):
     mat = np.array([
