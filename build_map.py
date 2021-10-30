@@ -1,5 +1,6 @@
 import argparse
 import math
+from map_builder import MapBuilder
 from map_builder_2d import MapBuilder2d
 from map_builder_2p5d import MapBuilder2p5d
 from map_builder_3d import MapBuilder3d
@@ -16,6 +17,8 @@ def main():
     parser.add_argument('--mode', type=str, default='2d', help='output data directory')
     
     args = parser.parse_args()
+    if args.mode not in ['2.5d', '3d', '2d']:
+        raise RuntimeError("Unexpected map type", args.mode)
     
     data_dir = args.input_data_dir
     data_out = args.output_data_dir
@@ -27,17 +30,10 @@ def main():
 
     img_data = load_images(data_dir)
 
-    if args.mode == '2.5d':
-        map_builder = MapBuilder2p5d(data['camera_matrix'],
-                                     data['tag_side_length'])
-    elif args.mode == '3d':
-        map_builder = MapBuilder3d(data['camera_matrix'],
-                                   data['tag_side_length'])
-    elif args.mode == '2d':
-        map_builder = MapBuilder2d(data['camera_matrix'],
-                                   data['tag_side_length'])
-    else:
-        print("invalid mode", args.mode)
+    map_builder = MapBuilder(data['camera_matrix'],
+                             data['tag_side_length'],
+                             args.mode)
+
 
     viewpoint_ids = sorted(data["viewpoints"].keys())
     next_viewpoint_idx = 0
