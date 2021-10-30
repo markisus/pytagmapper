@@ -107,7 +107,6 @@ class MapBuilder2d:
             self.detection_errors[i] = self.inverse_pixel_cov * np.dot(residual.T, residual)[0,0]
 
         curr_error = self.get_total_detection_error()
-        curr_error = self.get_total_detection_error()
         if curr_error < prev_error:
             if self.streak > 10:
                 self.regularizer *= 0.5                
