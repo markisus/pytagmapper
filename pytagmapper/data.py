@@ -111,7 +111,7 @@ def load_map(data_dir):
         return data
 
 def load_viewpoints(data_dir):
-    with open(get_viewpoints_json_path(data_dir)) as f:
+    with open(get_path(data_dir, "viewpoints.json")) as f:
         data = json.load(f)
 
         # convert string keys to int keys
