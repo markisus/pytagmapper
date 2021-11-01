@@ -43,7 +43,7 @@ def main():
 
     prev_error = float('inf')
     while True:
-        need_add_viewpoint = need_add_viewpoint or (args.mode == '2d' and next_viewpoint_idx + 1 < len(viewpoint_ids))
+        need_add_viewpoint = need_add_viewpoint or (args.mode == '2d' and next_viewpoint_idx + 1 <= len(viewpoint_ids))
         if need_add_viewpoint:
             viewpoint_id = viewpoint_ids[next_viewpoint_idx]
             tags = data["viewpoints"][viewpoint_id]
@@ -64,12 +64,12 @@ def main():
             change = delta/prev_error
             avg_det_error = error / len(map_builder.detections)
 
-            print("viewpoints", next_viewpoint_idx,
+            print("tracking", next_viewpoint_idx, "viewpoints",
                   "error", error, "avg_error", avg_det_error, "change", change*100, "%")
 
             viewpoint_converged = improved and (abs(change) < 1e-5 or avg_det_error < 10)
             if viewpoint_converged:
-                if next_viewpoint_idx+1 < len(viewpoint_ids):
+                if next_viewpoint_idx+1 <= len(viewpoint_ids):
                     need_add_viewpoint = True
                 elif abs(change) < 1e-6:
                     # no more viewpoints and converged
