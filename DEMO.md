@@ -8,8 +8,8 @@ Commands
 
     git clone https://github.com/markisus/pytagmapper
     cd pytagmapper
-    python build_map.py --input-data-dir example_data --output-data-dir example_map
-    python show_map.py --map-dir example_map  
+    python build_map.py example_data
+    python show_map.py example_data
     
  Result
  ----

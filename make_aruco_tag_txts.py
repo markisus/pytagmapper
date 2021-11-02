@@ -4,8 +4,8 @@ import cv2
 
 def main():
     parser = argparse.ArgumentParser(description='Write tags.txt into a directory of images using opencv aruco tag detector.')
-    parser.add_argument('--image-dir', type=str, help='directory of image_{id}.png images', required=True)
-    parser.add_argument('--show-detections', action='store_true', default=False, help='use cv2.imshow to show detected tags')
+    parser.add_argument('image_dir', type=str, help='directory of image_{id}.png images')
+    parser.add_argument('--show-detections', '-s', action='store_true', default=False, help='use cv2.imshow to show detected tags')
     args = parser.parse_args()
     
     image_paths = get_image_paths(args.image_dir)

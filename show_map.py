@@ -8,7 +8,7 @@ import numpy as np
 
 def main():
     parser = argparse.ArgumentParser(description='Plot a tag map.')
-    parser.add_argument('--map-dir', type=str, help='map directory')
+    parser.add_argument('map_dir', type=str, help='map directory')
     args = parser.parse_args()
 
     map_data = load_map(args.map_dir)

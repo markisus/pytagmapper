@@ -9,19 +9,19 @@ import numpy as np
 
 def main():
     parser = argparse.ArgumentParser(description='Build a map from images of tags.')
-    parser.add_argument('--input-data-dir', type=str, help='input data directory')
-    parser.add_argument('--output-data-dir', type=str, help='output data directory')
+    parser.add_argument('data_dir', type=str, help='input data directory')
+    parser.add_argument('--output-dir', '-o', type=str, help='output data directory', default='')
     parser.add_argument('--mode', type=str, default='2d', help='output data directory')
     
     args = parser.parse_args()
     if args.mode not in ['2.5d', '3d', '2d']:
         raise RuntimeError("Unexpected map type", args.mode)
-    
-    data_dir = args.input_data_dir
-    data_out = args.output_data_dir
 
-    if not os.path.exists(data_out):
-        os.mkdir(data_out)
+    data_dir = args.data_dir
+    output_dir = args.output_dir or args.data_dir
+
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
     
     data = load_data(data_dir)
 
@@ -77,27 +77,27 @@ def main():
 
         prev_error = error
 
-    print("Saving to", data_out)
+    print("Saving to", output_dir)
     save_viewpoints_json(
-            data_out,
+            output_dir,
             map_builder.viewpoint_ids,
             map_builder.txs_world_viewpoint)
 
     if args.mode == '3d':
         save_map3d_json(
-            data_out,
+            output_dir,
             map_builder.tag_side_length,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     elif args.mode == '2.5d':
         save_map2p5d_json(
-            data_out,
+            output_dir,
             map_builder.tag_side_length,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     else:
         save_map_json(
-            data_out,
+            output_dir,
             map_builder.tag_side_length,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
