@@ -197,7 +197,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("source_dir", type=str, help="directory containing source data used to make the map")
     parser.add_argument("--map", "-m", type=str, help="directory containing map.json and viewpoints.json if different than source_dir", default="")
+    parser.add_argument("--device", "-d", type=int, help="cv2 video capture device for live mode", default=-1)
     args = parser.parse_args()
+
+    if args.device >= 0:
+        print("Using camera stream", args.device)
 
     source_dir = args.source_dir
     map_dir = args.map or args.source_dir
@@ -225,9 +229,6 @@ def main():
 
     selected_image_id = image_ids[0]
     selected_tag_id = tag_ids[0]
-
-    str_tag_ids = [str(t) for t in tag_ids]
-    str_image_ids = [str(i) for i in image_ids]
 
     camera_matrix = load_camera_matrix(source_dir)
 
@@ -257,16 +258,74 @@ def main():
                                               rectified_view.view_size_px,
                                               3)))
 
+    video = None
+    aruco_dict = None
+    aruco_params = None
+    tracker = None
+    tracker_initted = False
+    if args.device >= 0:
+        camera_width = images[0].shape[1]
+        camera_height = images[0].shape[0]
+        video = cv2.VideoCapture(args.device, cv2.CAP_DSHOW)
+        video.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
+        video.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
+        app.add_image("video", np.zeros((camera_height,
+                                         camera_width, 3)))
+        aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
+        aruco_params = cv2.aruco.DetectorParameters_create()
+        tracker = InsideOutTracker(camera_matrix, map_data)
+
     HIGHLIGHT_COLOR = imgui.get_color_u32_rgba(1,0.5,0.2,1)
     IN_PROGRESS_COLOR = imgui.get_color_u32_rgba(1,0.2,0.5,1)
     FINALIZED_COLOR = imgui.get_color_u32_rgba(1,0,0,1)
-    
+
     while app.running:
         app.main_loop_begin()
+
+        if video is not None:
+            ret, image = video.read()
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            images["video"] = rgb_image
+            if ret:
+                app.update_image("video", rgb_image)
+
+            # update tracker
+            aruco_corners, aruco_ids, aruco_rejected = cv2.aruco.detectMarkers(
+                image,
+                aruco_dict,
+                parameters=aruco_params)
+            aruco_ids = aruco_ids if aruco_ids is not None else [] # aruco_ids is sometimes annoyingly None
+        
+            aruco_corners = [c[0] for c in aruco_corners]
+            aruco_ids = [i[0] for i in aruco_ids]
+            aruco_corners_flat = [np.array([c.flatten()]).T for c in aruco_corners]
+            
+            if not tracker_initted and tracker.error > 100:
+                tracker.update(aruco_ids, aruco_corners_flat, force_update = False)
+            else:
+                tracker_initted = True
+
+            if tracker_initted:
+                tracker.update(aruco_ids, aruco_corners_flat)
+
+            viewpoints_data["video"] = tracker.tx_world_viewpoint
+
+            imgui.begin("Inside Out Tracking")
+            display_width = imgui.get_window_width() - 10
+            tid, w, h = app.get_image("video")
+            imgui.text(f"error {tracker.error}")
+            imgui.text(f"regularizer {tracker.regularizer}")
+            imgui.text(f"# detections {len(aruco_ids)}")
+            overlayable = draw_overlayable_image(tid, w, h, display_width)
+            for tag_id, corners in zip(aruco_ids, aruco_corners):
+                overlay_tag(overlayable, corners.T, tag_id, thickness=1)
+            imgui.end()
         
         imgui.begin("Select")
         display_width = imgui.get_window_width() - 10  
-        for image_id in image_ids:
+        
+        expanded_image_ids = image_ids if video is None else ["video"] + image_ids
+        for image_id in expanded_image_ids:
             tid, w, h = app.get_image(image_id)
             overlayable = draw_overlayable_image(tid, w, h, display_width)
 
