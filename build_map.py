@@ -43,7 +43,6 @@ def main():
 
     prev_error = float('inf')
     while True:
-        need_add_viewpoint = need_add_viewpoint or (args.mode == '2d' and next_viewpoint_idx + 1 <= len(viewpoint_ids))
         if need_add_viewpoint:
             viewpoint_id = viewpoint_ids[next_viewpoint_idx]
             tags = data["viewpoints"][viewpoint_id]
