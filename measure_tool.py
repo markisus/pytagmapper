@@ -235,7 +235,7 @@ def main():
     tag_line_segments = defaultdict(list)
     tag_circles = defaultdict(list)
 
-    show_help = False
+    show_help = True
 
     circle_in_progress = False
     line_in_progress = False
