@@ -24,3 +24,10 @@ After building the map, you can run inside out tracking, see [inside_out_tracker
 
 https://user-images.githubusercontent.com/469689/139487287-1faedbd3-6c03-4f87-8340-1811aaefe209.mp4
 
+Measure Tool
+=====
+You can also try out the measure tool. [measure_tool.py](https://github.com/markisus/pytagmapper/blob/main/measure_tool.py).
+
+
+https://user-images.githubusercontent.com/469689/140164076-1a53f7c5-664c-4cb6-895e-af9c1dac0fdd.mp4
+
