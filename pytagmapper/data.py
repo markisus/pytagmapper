@@ -19,9 +19,9 @@ def load_measurements(data_dir):
             measurements.append((tag_a, tag_b, dist))
     return measurements
 
-def get_map_json(tag_side_length, tag_ids, txs_world_tag):
+def get_map_json(tag_side_lengths, tag_ids, txs_world_tag):
     map_data = {
-        'tag_side_length': tag_side_length,
+        'tag_side_lengths': tag_side_lengths,
         'tag_locations': {},
         'map_type': '2d'
     }
@@ -38,9 +38,9 @@ def get_map_json(tag_side_length, tag_ids, txs_world_tag):
 
     return map_data
 
-def get_map2p5d_json(tag_side_length, tag_ids, txs_world_tag):
+def get_map2p5d_json(tag_side_lengths, tag_ids, txs_world_tag):
     map_data = {
-        'tag_side_length': tag_side_length,
+        'tag_side_lengths': tag_side_lengths,
         'tag_locations': {},
         'map_type': '2.5d'
     }
@@ -58,9 +58,9 @@ def get_map2p5d_json(tag_side_length, tag_ids, txs_world_tag):
 
     return map_data
 
-def get_map3d_json(tag_side_length, tag_ids, txs_world_tag):
+def get_map3d_json(tag_side_lengths, tag_ids, txs_world_tag):
     map_data = {
-        'tag_side_length': tag_side_length,
+        'tag_side_lengths': tag_side_lengths,
         'tag_locations': {},
         'map_type': '3d'
     }
@@ -72,21 +72,21 @@ def get_map3d_json(tag_side_length, tag_ids, txs_world_tag):
     return map_data
 
 
-def save_map_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
+def save_map_json(data_dir, tag_side_lengths, tag_ids, txs_world_tag):
     with open(get_path(data_dir, "map.json"), "w") as f:
-        json.dump(get_map_json(tag_side_length,
+        json.dump(get_map_json(tag_side_lengths,
                                tag_ids,
                                txs_world_tag), f)
 
-def save_map2p5d_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
+def save_map2p5d_json(data_dir, tag_side_lengths, tag_ids, txs_world_tag):
     with open(get_path(data_dir, "map.json"), "w") as f:
-        json.dump(get_map2p5d_json(tag_side_length,
+        json.dump(get_map2p5d_json(tag_side_lengths,
                                    tag_ids,
                                    txs_world_tag), f)
 
-def save_map3d_json(data_dir, tag_side_length, tag_ids, txs_world_tag):
+def save_map3d_json(data_dir, tag_side_lengths, tag_ids, txs_world_tag):
     with open(get_path(data_dir, "map.json"), "w") as f:
-        json.dump(get_map3d_json(tag_side_length,
+        json.dump(get_map3d_json(tag_side_lengths,
                                  tag_ids,
                                  txs_world_tag), f)
 
@@ -106,8 +106,17 @@ def load_map(data_dir):
         tag_locations_fixed = {}
         for k, v in data['tag_locations'].items():
             tag_locations_fixed[int(k)] = v
+
+        # convert string keys to int keys
+        tag_side_lengths_fixed = {}
+        for k, v in data['tag_side_lengths'].items():
+            if k != 'default':
+                tag_side_lengths_fixed[int(k)] = v
+            else:
+                tag_side_lengths_fixed[k] = v
         
         data['tag_locations'] = tag_locations_fixed
+        data['tag_side_lengths'] = tag_side_lengths_fixed
         return data
 
 def load_viewpoints(data_dir):
@@ -132,8 +141,22 @@ def load_camera_matrix(data_dir = "data"):
         return parse_camera_matrix_file(f)
 
 def load_tag_side_length(data_dir = "data"):
+    tag_lengths = {}
     with open(get_path(data_dir, "tag_side_length.txt"), "r") as f:
-        return float(f.readline())
+        for line in f:
+            tokens = line.split(" ")
+            if len(tokens) == 1:
+                # set default tag length
+                tag_lengths["default"] = float(tokens[0])
+            elif len(tokens) == 2:
+                tag_length = float(tokens[1])
+                tag_lengths[int(tokens[0])] = tag_length
+                if "default" not in tag_lengths:
+                    # since we don't have a default length, make this the default also
+                    tag_lengths["default"] = tag_length
+            else:
+                raise RuntimeError("malformed tag side length file, line", line)
+    return tag_lengths
 
 def load_data(data_dir = "data"):
     data = {
@@ -143,7 +166,10 @@ def load_data(data_dir = "data"):
     }
 
     data['camera_matrix'] = load_camera_matrix(data_dir)
-    data['tag_side_length'] = load_tag_side_length(data_dir)
+
+    tag_side_lengths = load_tag_side_length(data_dir)
+    data['tag_side_length'] = tag_side_lengths["default"] # to be deprecated
+    data['tag_side_lengths'] = tag_side_lengths
 
     for file_path in glob.glob(os.path.join(data_dir, "tags_*.txt")):
         file_name = os.path.splitext(os.path.split(file_path)[-1])[0]
@@ -177,4 +203,4 @@ def parse_tag_file(f):
             current_tag = tags[tag_id]
         else:
             current_tag += [float(s) for s in line.split(" ")]
-    return tags
+    return tags    

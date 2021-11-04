@@ -28,7 +28,7 @@ def main():
     img_data = load_images(data_dir)
 
     map_builder = MapBuilder(data['camera_matrix'],
-                             data['tag_side_length'],
+                             data['tag_side_lengths'],
                              args.mode)
 
 
@@ -85,19 +85,19 @@ def main():
     if args.mode == '3d':
         save_map3d_json(
             output_dir,
-            map_builder.tag_side_length,
+            map_builder.tag_side_lengths,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     elif args.mode == '2.5d':
         save_map2p5d_json(
             output_dir,
-            map_builder.tag_side_length,
+            map_builder.tag_side_lengths,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     else:
         save_map_json(
             output_dir,
-            map_builder.tag_side_length,
+            map_builder.tag_side_lengths,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
 

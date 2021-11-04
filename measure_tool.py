@@ -219,8 +219,8 @@ def main():
         else:
             raise RuntimeError("Unhandled map type", map_type)
 
-    tag_side_length = map_data["tag_side_length"]
-    corners_mat = get_corners_mat(tag_side_length)
+    default_tag_side_length = map_data["tag_side_lengths"]["default"]
+    tag_side_lengths = map_data["tag_side_lengths"]
     
     viewpoints_data = load_viewpoints(map_dir)
     images = load_images(source_dir)
@@ -232,7 +232,7 @@ def main():
 
     camera_matrix = load_camera_matrix(source_dir)
 
-    rectified_view = RectifiedTagView(800, 60, tag_side_length)
+    rectified_view = RectifiedTagView(800, 60)
     tag_line_segments = defaultdict(list)
     tag_circles = defaultdict(list)
 
@@ -341,6 +341,7 @@ def main():
             for tag_id in tag_ids:
                 tx_world_tag = tag_data[tag_id]
                 tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+                corners_mat = get_corners_mat(tag_side_lengths.get(tag_id, default_tag_side_length))
                 projected_corners = camera_matrix @ (tx_viewpoint_tag @ corners_mat)[:3,:]
                 projected_corners[:2,:] /= projected_corners[2,:]
                 projected_corners = projected_corners[:2,:]
@@ -397,6 +398,8 @@ def main():
         tx_world_viewpoint = viewpoints_data[selected_image_id]
         tx_world_tag = tag_data[selected_tag_id]
         tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+        tag_side_length = tag_side_lengths.get(tag_id, default_tag_side_length)
+        corners_mat = get_corners_mat(tag_side_length)
         projected_corners = camera_matrix @ (tx_viewpoint_tag @ corners_mat)[:3,:]
         projected_corners /= projected_corners[2,:]
 
@@ -418,7 +421,7 @@ def main():
             overlay_circle(overlayable_rectified, rx, ry, 5, imgui.get_color_u32_rgba(1,0,0,1), 1)
         mx, my = imgui.get_mouse_pos()
         rx, ry = overlay_inv_transform(overlayable_rectified, mx, my)
-        hx, hy = rectified_view.get_metric_coords(rx, ry)
+        hx, hy = rectified_view.get_metric_coords(rx, ry, tag_side_length)
 
         next_highlighted_line_segment = None
         next_highlighted_circle_fit = None

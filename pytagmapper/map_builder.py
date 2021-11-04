@@ -28,7 +28,7 @@ def huber_error(k, residual):
 
 # 6dof dimensional tag poses SE3
 class MapBuilder:
-    def __init__(self, camera_matrix, tag_side_length, map_type = "2d"):
+    def __init__(self, camera_matrix, tag_side_lengths, map_type = "2d"):
         self.map_type = map_type
 
         if map_type == "3d":
@@ -51,8 +51,9 @@ class MapBuilder:
         
         self.camera_matrix = np.array(camera_matrix)
         self.inverse_pixel_cov = (1.0/10)**2
-        self.tag_side_length = tag_side_length
-        self.corners_mat = get_corners_mat(size=tag_side_length)
+        self.tag_side_lengths = tag_side_lengths
+        self.default_tag_side_length = tag_side_lengths["default"]
+        self.corners_mats = []
 
         # linearization
         self.txs_world_viewpoint = []
@@ -85,7 +86,7 @@ class MapBuilder:
 
         # 1m above the surface, facing down onto the surface
         # height above the surface, facing down onto the surface
-        h = self.tag_side_length * 10
+        h = self.default_tag_side_length * 10
         self.init_viewpoint = np.array([
             [1,  0,  0, 0],
             [0, -1,  0, 0],
@@ -114,6 +115,13 @@ class MapBuilder:
                 self.tag_ids.append(tag_id)
                 self.txs_world_tag.append(np.eye(self.tx_world_tag_dim))
                 self.tag_infos.append(self.tag_info_cls())
+
+                if tag_id in self.tag_side_lengths:
+                    tag_side_length = self.tag_side_lengths[tag_id]
+                else:
+                    tag_side_length = self.default_tag_side_length
+                self.corners_mats.append(get_corners_mat(size=tag_side_length))
+
             tag_idx = self.tag_id_to_idx[tag_id]
             # print("viewpoint", viewpoint_id, "contained tag at idx", tag_idx)
 
@@ -140,7 +148,7 @@ class MapBuilder:
             if self.map_type == "2d":
                 tx_world_tag = SE2_to_SE3(tx_world_tag)
             tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
-            image_corners, dimage_corners_dcamera, dimage_corners_dtag = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mat)
+            image_corners, dimage_corners_dcamera, dimage_corners_dtag = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mats[tag_idx])
             self.detection_jacobians[i][:,:6] = dimage_corners_dcamera
 
             if self.map_type == "2d":

@@ -8,16 +8,15 @@ from pytagmapper.rolling_mean_var import RollingMeanVar
 
 def main():
     parser = argparse.ArgumentParser(description='Demo inside out tracking on a map.')
-    parser.add_argument('--map-dir', type=str, help='map directory containing map.json', required=True)
     parser.add_argument('--camera-matrix-dir', type=str, help='directory containing camera_matrix.txt', default='.')
+    parser.add_argument('map_dir', type=str, help='map directory containing map.json')
     parser.add_argument('--width', type=int, help='camera stream width', default=0)
-    parser.add_argument('--height', type=int, help='camera stream width', default=0)
+    parser.add_argument('--height', type=int, help='camera stream height', default=0)
     parser.add_argument('--device', type=int, help='camera device', default=0)
     args = parser.parse_args()
 
     map_data = load_map(args.map_dir)
     map_type = map_data['map_type']
-    tag_side_length = map_data['tag_side_length']
     camera_matrix = load_camera_matrix(args.camera_matrix_dir)
     aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
     aruco_params = cv2.aruco.DetectorParameters_create()
@@ -161,9 +160,13 @@ def main():
         # project all tags to topdown
         for tag_id, tx_world_tag in tracker.txs_world_tag.items():
             tx_tdcam_tag = tx_tdcam_world @ tx_world_tag
+            tag_side_length = map_data["tag_side_lengths"].get(tag_id, None)
+            if tag_side_length is None:
+                tag_side_length = map_data["tag_side_lengths"]["default"]
+            corners_mat = get_corners_mat(tag_side_length)
             corners_td, _, _ = project(tdcam_matrix,
                                        tx_tdcam_tag,
-                                       tracker.corners_mat)
+                                       corners_mat)
             for i in range(4):
                 ni = (i+1)%4
                 start = (int(corners_td[2*i, 0]), int(corners_td[2*i+1, 0]))
