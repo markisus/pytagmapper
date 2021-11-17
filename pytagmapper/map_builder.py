@@ -80,7 +80,8 @@ class MapBuilder:
 
         self.viewpoint_id_to_idx = {}
         self.viewpoint_ids = []
-        self.viewpoint_detections = []
+        self.viewpoint_detections = [] # list of (start, finish) tuple
+        self.tag_detections = [] # list of list
         self.tag_id_to_idx = {}
         self.tag_ids = []
 
@@ -94,11 +95,11 @@ class MapBuilder:
             [0,  0,  0, 1],
         ])
 
-    def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None):
+    def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None, init_tags = None):
         self.viewpoint_id_to_idx[viewpoint_id] = len(self.viewpoint_ids)
         self.viewpoint_ids.append(viewpoint_id)
 
-        if not init_viewpoint:
+        if init_viewpoint is None:
             if self.txs_world_viewpoint:
                 # use the previously added viewpoint as a guess
                 init_viewpoint = self.txs_world_viewpoint[-1]
@@ -113,8 +114,12 @@ class MapBuilder:
             if tag_id not in self.tag_id_to_idx:
                 self.tag_id_to_idx[tag_id] = len(self.tag_ids)
                 self.tag_ids.append(tag_id)
-                self.txs_world_tag.append(np.eye(self.tx_world_tag_dim))
+                if init_tags is not None and tag_id in init_tags:
+                    self.txs_world_tag.append(init_tags[tag_id])
+                else:
+                    self.txs_world_tag.append(np.eye(self.tx_world_tag_dim))
                 self.tag_infos.append(self.tag_info_cls())
+                self.tag_detections.append([])
 
                 if tag_id in self.tag_side_lengths:
                     tag_side_length = self.tag_side_lengths[tag_id]
@@ -135,49 +140,121 @@ class MapBuilder:
             self.detection_to_viewpoint_msgs.append(InfoState6())
             self.detection_to_tag_msgs.append(self.tag_info_cls())
             self.detection_errors.append(float('inf'))
+            self.tag_detections[tag_idx].append(len(self.detections)-1)
+
         viewpoint_detections_end = len(self.detections)
         self.viewpoint_detections.append((viewpoint_detections_start, viewpoint_detections_end))
 
+    def update_viewpoint(self, viewpoint_idx):
+        # [ ]_____( )
+        # [ ]_____/
+        # [ ]_____/
+        # [ ]_____/
+
+        viewpoint_info = self.viewpoint_infos[viewpoint_idx]        
+        delta = np.linalg.solve(viewpoint_info.matrix, viewpoint_info.vector)
+        self.txs_world_viewpoint[viewpoint_idx] = self.txs_world_viewpoint[viewpoint_idx] @ se3_exp(delta)
+        fix_SE3(self.txs_world_viewpoint[viewpoint_idx])
+        viewpoint_info.clear()
+        viewpoint_info.matrix = self.regularizer * np.eye(6)
+
+        # apply update
+        # relinearize all detections involved with this viewpoint
+        # send updates to this viewpoint
+        for det_idx in range(*self.viewpoint_detections[viewpoint_idx]):
+            self.relinearize_detection(det_idx)
+
+        # send updates to this viewpoint from all detections
+        for det_idx in range(*self.viewpoint_detections[viewpoint_idx]):
+            self.detection_to_viewpoint_msgs[det_idx].clear()                
+            self.send_detection_to_viewpoint_msg(det_idx)
+
+        # send updates from this viewpoint to all detections
+        for det_idx in range(*self.viewpoint_detections[viewpoint_idx]):
+            self.send_detection_to_tag_msg(det_idx)
+
+    def update_tag(self, tag_idx):
+        # [ ]_____( )
+        # [ ]_____/
+        # [ ]_____/
+        # [ ]_____/
+
+        tag_info = self.tag_infos[tag_idx]
+
+        delta = np.linalg.solve(tag_info.matrix, tag_info.vector)
+        if self.map_type == "2d":
+            self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se2_exp(delta)
+        elif self.map_type == "2.5d":
+            # haven't implemented exp for SE2xR, so just lift to SE3
+            se3_delta = np.zeros((6,1))
+            se3_delta[2:,:] = delta # [0,0,wz,x,y,z]
+            self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se3_exp(se3_delta)
+        elif self.map_type == "3d":
+            self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se3_exp(delta)
+        else:
+            raise RuntimeError("Unsupported map type", self.map_type)
+        
+        tag_info.clear()
+        tag_info.matrix = self.regularizer * np.eye(self.tag_dof)
+
+        # apply update
+        # relinearize all detections involved with this tag
+        for det_idx in self.tag_detections[tag_idx]:
+            self.relinearize_detection(det_idx)
+
+        # send updates to this tag from all detections
+        for det_idx in self.tag_detections[tag_idx]:
+            self.detection_to_tag_msgs[det_idx].clear()
+            self.send_detection_to_tag_msg(det_idx)
+
+        # send updates from this tag to all detections
+        for det_idx in self.tag_detections[tag_idx]:
+            self.send_detection_to_viewpoint_msg(det_idx)
+
+    def relinearize_detection(self, det_idx):
+        detection = self.detections[det_idx]
+        tag_idx, viewpoint_idx, tag_corners = detection
+        tx_world_tag = self.txs_world_tag[tag_idx]
+        if self.map_type == "2d":
+            tx_world_tag = SE2_to_SE3(tx_world_tag)
+
+        tx_world_viewpoint = self.txs_world_viewpoint[viewpoint_idx]
+        tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+        image_corners, dimage_corners_dcamera, dimage_corners_dtag = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mats[tag_idx])
+        self.detection_jacobians[det_idx][:,:6] = dimage_corners_dcamera
+        if self.map_type == "2d":
+            self.detection_jacobians[det_idx][:,6+0] = dimage_corners_dtag[:,2] # wz
+            self.detection_jacobians[det_idx][:,6+1] = dimage_corners_dtag[:,3] # dx
+            self.detection_jacobians[det_idx][:,6+2] = dimage_corners_dtag[:,4] # dy
+        elif self.map_type == "2.5d":
+            self.detection_jacobians[det_idx][:,6+0] = dimage_corners_dtag[:,2] # wz
+            self.detection_jacobians[det_idx][:,6+1] = dimage_corners_dtag[:,3] # dx
+            self.detection_jacobians[det_idx][:,6+2] = dimage_corners_dtag[:,4] # dy
+            self.detection_jacobians[det_idx][:,6+3] = dimage_corners_dtag[:,5] # dz
+        elif self.map_type == "3d":
+            self.detection_jacobians[det_idx][:,6:] = dimage_corners_dtag
+        else:
+            raise RuntimeError("Unsupported map type", self.map_type)
+
+        self.detection_projections[det_idx] = image_corners
+        residual = image_corners - tag_corners
+        self.detection_residuals[det_idx] = residual
+
+        # caculate huber loss
+        huber_k = float('inf')
+        huber_w = make_huber_mat(huber_k, residual)
+
+        J = self.detection_jacobians[det_idx]
+        self.detection_JtJs[det_idx] = self.inverse_pixel_cov * J.T @ huber_w @ J
+        self.detection_rtJs[det_idx] = self.inverse_pixel_cov * residual.T @ huber_w @ J
+        self.detection_errors[det_idx] = self.inverse_pixel_cov * huber_error(huber_k, residual)
+
+        
     def relinearize(self):
         prev_error = self.get_total_detection_error()
         
-        for i, detection in enumerate(self.detections):
-            tag_idx, viewpoint_idx, tag_corners = detection
-            tx_world_viewpoint = self.txs_world_viewpoint[viewpoint_idx]
-            tx_world_tag = self.txs_world_tag[tag_idx]
-            if self.map_type == "2d":
-                tx_world_tag = SE2_to_SE3(tx_world_tag)
-            tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
-            image_corners, dimage_corners_dcamera, dimage_corners_dtag = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mats[tag_idx])
-            self.detection_jacobians[i][:,:6] = dimage_corners_dcamera
-
-            if self.map_type == "2d":
-                self.detection_jacobians[i][:,6+0] = dimage_corners_dtag[:,2] # wz
-                self.detection_jacobians[i][:,6+1] = dimage_corners_dtag[:,3] # dx
-                self.detection_jacobians[i][:,6+2] = dimage_corners_dtag[:,4] # dy
-            elif self.map_type == "2.5d":
-                self.detection_jacobians[i][:,6+0] = dimage_corners_dtag[:,2] # wz
-                self.detection_jacobians[i][:,6+1] = dimage_corners_dtag[:,3] # dx
-                self.detection_jacobians[i][:,6+2] = dimage_corners_dtag[:,4] # dy
-                self.detection_jacobians[i][:,6+3] = dimage_corners_dtag[:,5] # dz
-            elif self.map_type == "3d":
-                self.detection_jacobians[i][:,6:] = dimage_corners_dtag
-            else:
-                raise RuntimeError("Unsupported map type", self.map_type)
-
-            self.detection_projections[i] = image_corners
-            residual = image_corners - tag_corners
-            self.detection_residuals[i] = residual
-
-            # caculate huber loss
-            huber_k = 30
-            huber_w = make_huber_mat(huber_k, residual)
-
-            J = self.detection_jacobians[i]
-            self.detection_JtJs[i] = self.inverse_pixel_cov * J.T @ huber_w @ J
-            self.detection_rtJs[i] = self.inverse_pixel_cov * residual.T @ huber_w @ J
-
-            self.detection_errors[i] = self.inverse_pixel_cov * huber_error(huber_k, residual)
+        for i in range(len(self.detections)):
+            self.relinearize_detection(i)
             
         curr_error = self.get_total_detection_error()
         if curr_error < prev_error:
@@ -192,7 +269,7 @@ class MapBuilder:
         else:
             self.regularizer *= 25.0
 
-        self.regularizer = max(self.regularizer, 10)
+        self.regularizer = max(self.regularizer, 1e-3)
         self.regularizer = min(self.regularizer, 1e6)
 
         # clear all messages and states
