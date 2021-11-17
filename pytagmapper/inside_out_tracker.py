@@ -4,6 +4,57 @@ from pytagmapper.project import *
 from pytagmapper.data import *
 from pytagmapper.heuristics import *
 
+def look_at_origin(from_xyz, up_dir):
+    from_xyz = np.array(from_xyz, dtype=np.float64)
+    up_dir = np.array(up_dir, dtype=np.float64)
+    look_dir = -from_xyz
+    look_dir /= np.linalg.norm(look_dir)
+    x = np.cross(look_dir, up_dir) # z cross (-y) = x
+    y = np.cross(look_dir, x) # z cross x = y
+    x /= np.linalg.norm(x)
+    y /= np.linalg.norm(y)
+    result = np.empty((4,4))
+    result[:3,0] = x
+    result[:3,1] = y
+    result[:3,2] = look_dir
+    result[:3,3] = from_xyz
+    result[3,:] = [0, 0, 0, 1]
+    return result
+
+# success of the tracker heavily depends on initialization
+# initialization from one of these viewpoints generally will succeed
+INIT_TXS_WORLD_VIEWPOINT = [
+    # topdown views
+    look_at_origin([0,0,1], [0,1,0]),
+    look_at_origin([0,0,1], [0,-1,0]),
+    look_at_origin([0,0,1], [1,0,0]),
+    look_at_origin([0,0,1], [-1,0,0]),
+
+    # view from left
+    look_at_origin([1,0,0.5], [0,0,1]),
+    look_at_origin([1,0,0.5], [0,0,-1]),
+    look_at_origin([1,0,0.5], [0,1,0]),
+    look_at_origin([1,0,0.5], [0,-1,0]),
+
+    # view from top
+    look_at_origin([0,1,0.5], [0,0,1]),
+    look_at_origin([0,1,0.5], [0,0,-1]),
+    look_at_origin([0,1,0.5], [1,0,0]),
+    look_at_origin([0,1,0.5], [-1,0,0]),
+
+    # view from right
+    look_at_origin([-1,0,0.5], [0,0,1]),
+    look_at_origin([-1,0,0.5], [0,0,-1]),
+    look_at_origin([-1,0,0.5], [0,1,0]),
+    look_at_origin([-1,0,0.5], [0,-1,0]),
+
+    # view from bottom
+    look_at_origin([0,-1,0.5], [0,0,1]),
+    look_at_origin([0,-1,0.5], [0,0,-1]),
+    look_at_origin([0,-1,0.5], [1,0,0]),
+    look_at_origin([0,-1,0.5], [-1,0,0]),
+]
+
 class InsideOutTracker:
     def __init__(self, camera_matrix, map_data,
                  tx_world_viewpoint = None):
@@ -16,21 +67,11 @@ class InsideOutTracker:
         for tag_id, tag_side_length in self.tag_side_lengths.items():
             self.corners_mats[tag_id] = get_corners_mat(tag_side_length)
 
-        self.txs_world_tag = {}            
-        self.map_type = map_data['map_type']
-        if self.map_type == '3d':
-            for tag_id, tx_world_tag in self.tag_locations.items():
-                self.txs_world_tag[tag_id] = np.array(tx_world_tag)
-        elif self.map_type == '2.5d':
-            for tag_id, xytz_world_tag in self.tag_locations.items():
-                self.txs_world_tag[tag_id] = \
-                    xytz_to_SE3(np.array([xytz_world_tag]).T)
-        elif self.map_type == '2d':
-            for tag_id, xyt_world_tag in self.tag_locations.items():
-                self.txs_world_tag[tag_id] = \
-                    xyt_to_SE3(np.array([xyt_world_tag]).T)
-        else:
-            raise RuntimeError("Unsupported map type", self.map_type)
+        self.txs_world_tag = {}
+
+        map_lift_3d(map_data)
+        for tag_id, tx_world_tag in self.tag_locations.items():
+            self.txs_world_tag[tag_id] = np.array(tx_world_tag)
 
         self.tx_world_viewpoint = tx_world_viewpoint
         if self.tx_world_viewpoint is None:
@@ -46,54 +87,91 @@ class InsideOutTracker:
         self.error = float('inf')
         self.regularizer = 1e5
 
-    def get_projections(self):
+        self.txs_world_viewpoint = [tx.copy() for tx in INIT_TXS_WORLD_VIEWPOINT]
+        for tx in self.txs_world_viewpoint:
+            tx[:3,3] *= self.default_tag_side_length * 10
+        self.num_hypotheses = len(self.txs_world_viewpoint)
+        self.errors = [float('inf') for _ in range(self.num_hypotheses)]
+        self.regularizers = [1e9 for _ in range(self.num_hypotheses)]
+
+    def get_corners_mat(self, tag_id):
+        return self.corners_mats.get(tag_id, self.default_corners_mat)
+
+    def get_projections(self, guess_idx=-1):
         tag_ids = []
         tag_corners =[]
 
+        if guess_idx >= 0:
+            tx_world_viewpoint = self.txs_world_viewpoint[guess_idx]
+        else:
+            tx_world_viewpoint = self.tx_world_viewpoint
+
         for tag_id, tx_world_tag in self.txs_world_tag.items():
-            tx_viewpoint_tag = SE3_inv(self.tx_world_viewpoint) @ tx_world_tag
-            projected_corners, _, _ = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mats.get(tag_id, self.default_corners_mat))
+            tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+            projected_corners, _, _ = project(self.camera_matrix, tx_viewpoint_tag, self.get_corners_mat(tag_id))
             tag_ids.append(tag_id)
             tag_corners.append(projected_corners)
 
         return tag_ids, tag_corners
 
-
-    def update(self, tag_ids, tag_corners, force_update = True):
+    def update_guess(self, guess_idx, tags, force_update = False):
+        tx_world_viewpoint = self.txs_world_viewpoint[guess_idx]
+        error = self.errors[guess_idx]
+        regularizer = self.regularizers[guess_idx]
+        
         JtJ = np.zeros((6,6))
         rtJ = np.zeros((1,6))
         curr_error = 0
 
-        for tag_id, corners in zip(tag_ids, tag_corners):
+        for tag_id, corners in tags:
             tx_world_tag = self.txs_world_tag.get(tag_id, None)
             if tx_world_tag is None:
                 continue
 
-            tx_viewpoint_tag = SE3_inv(self.tx_world_viewpoint) @ tx_world_tag
-
-            projected_corners, dcorners_dcamera, _ = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mats.get(tag_id, self.default_corners_mat))
+            corners = np.array(corners).reshape((8,1))
+            tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+            projected_corners, dcorners_dcamera, _ = project(self.camera_matrix, tx_viewpoint_tag, self.get_corners_mat(tag_id))
 
             residual = projected_corners - corners
             JtJ += dcorners_dcamera.T @ dcorners_dcamera
             rtJ += residual.T @ dcorners_dcamera
             curr_error += (residual.T @ residual)[0,0]
 
-        if curr_error > self.error:
-            self.regularizer *= 25
+        if curr_error > error:
+            regularizer *= 25
         else:
-            self.regularizer *= 0.5
+            regularizer *= 0.5
 
-        improved = curr_error < self.error
+        improved = curr_error < error
 
-        self.regularizer = min(self.regularizer, 1e4)
-        self.regularizer = max(self.regularizer, 1e-3)
-
-        self.error = curr_error
+        regularizer = min(regularizer, 1e9)
+        regularizer = max(regularizer, 1e-3)
 
         if improved or force_update:
-            update = np.linalg.solve(JtJ + self.regularizer * np.eye(6), -rtJ.T)
-            self.tx_world_viewpoint = heuristic_flip_tx_world_cam(self.tx_world_viewpoint @ se3_exp(update))
+            update = np.linalg.solve(JtJ + regularizer * np.eye(6), -rtJ.T)
+            tx_world_viewpoint = heuristic_flip_tx_world_cam(tx_world_viewpoint @ se3_exp(update))
+            error = curr_error
 
-        return improved
+        self.txs_world_viewpoint[guess_idx] = tx_world_viewpoint
+        self.regularizers[guess_idx] = regularizer
+        self.errors[guess_idx] = error
 
+    def update1(self, tags, force_update = False):
+        for i in range(self.num_hypotheses):
+            self.update_guess(i, tags, force_update)
+
+        # report the tx with the best error
+        best_guess = 0
+        best_error = float('inf')
+        for i, error in enumerate(self.errors):
+            if error < best_error:
+                best_guess = i
+                best_error = error
+
+        self.error = self.errors[best_guess]
+        self.tx_world_viewpoint = self.txs_world_viewpoint[best_guess]
+        return
+
+    def update(self, tag_ids, tag_corners, force_update = False):
+        return update1(self, zip(tag_ids, tag_corners), force_update)
 

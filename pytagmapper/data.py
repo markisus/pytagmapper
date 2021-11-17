@@ -4,6 +4,26 @@ import os
 import cv2
 import math
 import numpy as np
+from pytagmapper.geometry import *
+
+def map_lift_3d(map_data):
+    map_type = map_data['map_type']
+    tag_locations = map_data['tag_locations']
+    if map_type == '3d':
+        for tag_id, tx_world_tag in tag_locations.items():
+            tag_locations[tag_id] = np.array(tx_world_tag)
+    elif map_type == '2.5d':
+        for tag_id, xytz_world_tag in tag_locations.items():
+            tag_locations[tag_id] = \
+                xytz_to_SE3(np.array([xytz_world_tag]).T)
+    elif map_type == '2d':
+        for tag_id, xyt_world_tag in tag_locations.items():
+            tag_locations[tag_id] = \
+                xyt_to_SE3(np.array([xyt_world_tag]).T)
+    else:
+        raise RuntimeError("Unsupported map type", self.map_type)
+
+    map_data['map_type'] = '3d'
 
 def get_path(data_dir, filename):
     return os.path.join(data_dir, filename)
