@@ -8,6 +8,7 @@ from pytagmapper.geometry import *
 from pytagmapper.inside_out_tracker import InsideOutTracker
 from pytagmapper.geometry import SE3_inv
 from rectified_tag_view import *
+from misc import *
 import argparse
 import cv2
 import imgui
@@ -53,31 +54,6 @@ def overlay_tag(overlayable, tag_corners, tag_id = None, thickness = 1):
     if tag_id is not None:
         overlay_text(overlayable, acenter[0], acenter[1], imgui.get_color_u32_rgba(1,0,0,1), str(tag_id))
 
-def quad_contains_pt(cwise_quad, pt):
-    pt = np.array(pt).flatten()
-    for i in range(4):
-        ni = (i+1)%4
-        v = cwise_quad[:2,i]
-        nv = cwise_quad[:2,ni]
-        direction = nv - v
-        direction_perp = np.array([direction[1], -direction[0]])
-        in_hp = np.dot(direction_perp, pt - v) < 0
-        if not in_hp:
-            return False
-    return True
-
-def line_near_pt(px, py, qx, qy, x, y):
-    line_start = np.array([px, py])
-    line_end = np.array([qx, qy])
-    pt = np.array([x, y])
-    line_dir = line_end - line_start
-    line_length = np.linalg.norm(line_dir)
-    line_dir /= line_length + 1e-6
-    line_dir_perp = np.array([-line_dir[1], line_dir[0]])
-    ydist = abs(np.dot(line_dir_perp, pt - line_start))
-    xdist = np.dot(line_dir, pt - line_start)
-    tol = 15
-    return ydist < tol and -tol < xdist < line_length + tol
 
 def overlay_line_list(overlayable, line_list, color, thickness):
     for i in range(int(line_list.shape[1]/2)):
@@ -224,6 +200,7 @@ def main():
     
     viewpoints_data = load_viewpoints(map_dir)
     images = load_images(source_dir)
+
     image_ids = sorted(images.keys())
     tag_ids = sorted(map_data["tag_locations"].keys())
 
@@ -264,8 +241,8 @@ def main():
     tracker = None
     tracker_initted = False
     if args.device >= 0:
-        camera_width = images[0].shape[1]
-        camera_height = images[0].shape[0]
+        camera_width = images[selected_image_id].shape[1]
+        camera_height = images[selected_image_id].shape[0]
         video = cv2.VideoCapture(args.device, cv2.CAP_DSHOW)
         video.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
         video.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
