@@ -57,7 +57,7 @@ INIT_TXS_WORLD_VIEWPOINT = [
 
 class InsideOutTracker:
     def __init__(self, camera_matrix, map_data,
-                 tx_world_viewpoint = None):
+                 tx_world_viewpoint = None, max_regularizer = 1e9):
         self.tag_locations = map_data['tag_locations']        
         self.camera_matrix = np.array(camera_matrix)
         self.tag_side_lengths = map_data['tag_side_lengths']
@@ -85,14 +85,17 @@ class InsideOutTracker:
                 ])
 
         self.error = float('inf')
-        self.regularizer = 1e5
+
+        self.max_regularizer = max_regularizer
+        self.regularizer = self.max_regularizer        
 
         self.txs_world_viewpoint = [tx.copy() for tx in INIT_TXS_WORLD_VIEWPOINT]
         for tx in self.txs_world_viewpoint:
             tx[:3,3] *= self.default_tag_side_length * 10
         self.num_hypotheses = len(self.txs_world_viewpoint)
         self.errors = [float('inf') for _ in range(self.num_hypotheses)]
-        self.regularizers = [1e9 for _ in range(self.num_hypotheses)]
+        self.regularizers = [self.max_regularizer for _ in range(self.num_hypotheses)]
+        self.converged_guess = None
 
     def get_corners_mat(self, tag_id):
         return self.corners_mats.get(tag_id, self.default_corners_mat)
@@ -144,34 +147,45 @@ class InsideOutTracker:
 
         improved = curr_error < error
 
-        regularizer = min(regularizer, 1e9)
+        regularizer = min(regularizer, self.max_regularizer)
         regularizer = max(regularizer, 1e-3)
 
         if improved or force_update:
             update = np.linalg.solve(JtJ + regularizer * np.eye(6), -rtJ.T)
             tx_world_viewpoint = heuristic_flip_tx_world_cam(tx_world_viewpoint @ se3_exp(update))
-            error = curr_error
+
+        error = curr_error
 
         self.txs_world_viewpoint[guess_idx] = tx_world_viewpoint
         self.regularizers[guess_idx] = regularizer
         self.errors[guess_idx] = error
 
     def update1(self, tags, force_update = False):
-        for i in range(self.num_hypotheses):
-            self.update_guess(i, tags, force_update)
+        if self.converged_guess is not None:
+            self.update_guess(self.converged_guess, tags, force_update)
+            best_guess = self.converged_guess
+        else:
+            for i in range(self.num_hypotheses):
+                self.update_guess(i, tags, force_update)
 
-        # report the tx with the best error
-        best_guess = 0
-        best_error = float('inf')
-        for i, error in enumerate(self.errors):
-            if error < best_error:
-                best_guess = i
-                best_error = error
+            # report the tx with the best error
+            best_guess = 0
+            best_error = float('inf')
+            for i, error in enumerate(self.errors):
+                if error < best_error:
+                    best_guess = i
+                    best_error = error
+
+            # heuristic to check convergence
+            num_tags = len(tags)
+            if num_tags >= 2:
+                pt_error = best_error / (num_tags * 4)
+                if pt_error <= 5: # px
+                    self.converged_guess = best_guess
 
         self.error = self.errors[best_guess]
         self.tx_world_viewpoint = self.txs_world_viewpoint[best_guess]
-        return
 
     def update(self, tag_ids, tag_corners, force_update = False):
-        return update1(self, zip(tag_ids, tag_corners), force_update)
+        return self.update1(list(zip(tag_ids, tag_corners)), force_update)
 

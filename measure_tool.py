@@ -250,7 +250,8 @@ def main():
                                          camera_width, 3)))
         aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
         aruco_params = cv2.aruco.DetectorParameters_create()
-        tracker = InsideOutTracker(camera_matrix, map_data)
+
+        tracker = InsideOutTracker(camera_matrix, map_data, max_regularizer = 1e3)
 
     HIGHLIGHT_COLOR = imgui.get_color_u32_rgba(1,0.5,0.2,1)
     IN_PROGRESS_COLOR = imgui.get_color_u32_rgba(1,0.2,0.5,1)
@@ -283,7 +284,7 @@ def main():
                 tracker_initted = True
 
             if tracker_initted:
-                tracker.update(aruco_ids, aruco_corners_flat)
+                tracker.update(aruco_ids, aruco_corners_flat, force_update = True)
 
             viewpoints_data["video"] = tracker.tx_world_viewpoint
 
@@ -318,6 +319,15 @@ def main():
             for tag_id in tag_ids:
                 tx_world_tag = tag_data[tag_id]
                 tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+
+                tag_dir = tx_viewpoint_tag[:3,2].copy()
+                to_tag = tx_viewpoint_tag[:3,3].copy()
+                to_tag /= np.linalg.norm(to_tag)
+                tag_dp = np.dot(tag_dir, to_tag)
+                if tag_dp >= 0:
+                    # camera is looking at the back of tag
+                    continue
+
                 corners_mat = get_corners_mat(tag_side_lengths.get(tag_id, default_tag_side_length))
                 projected_corners = camera_matrix @ (tx_viewpoint_tag @ corners_mat)[:3,:]
                 projected_corners[:2,:] /= projected_corners[2,:]

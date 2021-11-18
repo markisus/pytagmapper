@@ -132,7 +132,7 @@ def main():
             print("Done")
 
         if tracker_initted:
-            improved = tracker.update(aruco_ids, aruco_corners_flat)
+            improved = tracker.update(aruco_ids, aruco_corners_flat, force_update = True)
 
         ptag_ids, ptag_corners = tracker.get_projections()
         for tag_id, acorners in zip(ptag_ids, ptag_corners):

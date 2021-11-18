@@ -123,9 +123,10 @@ def load_map(data_dir):
         data = json.load(f)
 
         # convert string keys to int keys
+        # convert to numpy
         tag_locations_fixed = {}
         for k, v in data['tag_locations'].items():
-            tag_locations_fixed[int(k)] = v
+            tag_locations_fixed[int(k)] = np.array(v)
 
         # convert string keys to int keys
         tag_side_lengths_fixed = {}
@@ -143,12 +144,11 @@ def load_viewpoints(data_dir):
     with open(get_path(data_dir, "viewpoints.json")) as f:
         data = json.load(f)
 
-        # convert string keys to int keys
         data_fixed = {}
         for k, v in data.items():
-            data_fixed[int(k)] = np.array(v)
-
+            data_fixed[k] = np.array(v)
         return data_fixed
+
 
 def parse_camera_matrix_file(f):
     camera_matrix = []
@@ -203,7 +203,7 @@ def get_image_paths(data_dir = "data"):
     image_paths = {}
     for file_path in glob.glob(os.path.join(data_dir, "image_*.png")):
         file_name = os.path.splitext(os.path.split(file_path)[-1])[0]
-        file_id = int(file_name.split("_")[-1])
+        file_id = file_name.split("_")[-1].strip()
         image_paths[file_id] = file_path
     return image_paths
 

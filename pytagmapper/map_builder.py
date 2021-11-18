@@ -48,6 +48,8 @@ class MapBuilder:
         
         self.regularizer = 1e9
         self.streak = 0
+
+        self.huber_k = float(30)
         
         self.camera_matrix = np.array(camera_matrix)
         self.inverse_pixel_cov = (1.0/10)**2
@@ -241,7 +243,7 @@ class MapBuilder:
         self.detection_residuals[det_idx] = residual
 
         # caculate huber loss
-        huber_k = float('inf')
+        huber_k = self.huber_k
         huber_w = make_huber_mat(huber_k, residual)
 
         J = self.detection_jacobians[det_idx]
