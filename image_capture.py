@@ -54,7 +54,7 @@ def captures_gui(ctx):
     for capture_idx in reversed(range(len(ctx.captures))):
         imgui.push_id(str(capture_idx))
         capture = ctx.captures[capture_idx]
-        imgui.text(f"image_{capture_idx}")
+        imgui.text(f"image_{capture_idx + ctx.capture_idx_offset}")
         imgui.same_line()
         if imgui.button("Delete"):
             ctx.delete_idx = capture_idx
@@ -103,7 +103,7 @@ def main():
 
     ctx = AppContext()
     ctx.captures = []
-    ctx.save_dir = "data00"
+    ctx.save_dir = "data01"
     ctx.should_save = False
     ctx.should_load = False
     ctx.delete_idx = None
@@ -143,7 +143,7 @@ def main():
             if not os.path.exists(ctx.save_dir):
                 os.mkdir(ctx.save_dir)
             for capture_idx, capture in enumerate(ctx.captures):
-                cv2.imwrite(os.path.join(ctx.save_dir,f"image_{capture_idx}.png"), capture.image)
+                cv2.imwrite(os.path.join(ctx.save_dir,f"image_{capture_idx + ctx.capture_idx_offset}.png"), capture.image)
 
     del ctx
     app.destroy()
