@@ -41,6 +41,7 @@ def captures_gui(ctx):
     display_height = scale * camera_height
 
     ctx.delete_idx = None
+    ctx.capture_idx_offset = 0
 
     _, ctx.save_dir = imgui.input_text("Save Dir", ctx.save_dir, 50)
     if imgui.button("Capture"):
