@@ -152,7 +152,8 @@ class InsideOutTracker:
 
         if improved or force_update:
             update = np.linalg.solve(JtJ + regularizer * np.eye(6), -rtJ.T)
-            tx_world_viewpoint = heuristic_flip_tx_world_cam(tx_world_viewpoint @ se3_exp(update))
+            tx_world_viewpoint = tx_world_viewpoint @ se3_exp(update)
+            # tx_world_viewpoint = heuristic_flip_tx_world_cam(tx_world_viewpoint @ se3_exp(update))
 
         error = curr_error
 
