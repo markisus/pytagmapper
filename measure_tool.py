@@ -174,10 +174,10 @@ def main():
     parser.add_argument("source_dir", type=str, help="directory containing source data used to make the map")
     parser.add_argument("--map", "-m", type=str, help="directory containing map.json and viewpoints.json if different than source_dir", default="")
     parser.add_argument("--device", "-d", type=int, help="cv2 video capture device for live mode", default=-1)
+    parser.add_argument("--realsense", "-rs", action="store_true", help="use pyrealsense api instead of cv2 for video streaming", default=False)
     args = parser.parse_args()
 
-    if args.device >= 0:
-        print("Using camera stream", args.device)
+    video_streaming = args.device >= 0 or args.realsense
 
     source_dir = args.source_dir
     map_dir = args.map or args.source_dir
@@ -240,17 +240,34 @@ def main():
     aruco_params = None
     tracker = None
     tracker_initted = False
-    if args.device >= 0:
+
+
+    if video_streaming:
         camera_width = images[selected_image_id].shape[1]
         camera_height = images[selected_image_id].shape[0]
+
+    if args.realsense:
+        print("Using realsense")
+        import pyrealsense2 as rs
+        rs_pipeline = rs.pipeline()
+        rs_config = rs.config()
+        rs_config.enable_stream(rs.stream.color,
+                                camera_width, camera_height,
+                                rs.format.bgr8,
+                                30)
+        rs_pipeline.start(rs_config)        
+    elif args.device >= 0:
+        print("Using cv2 device", args.device)
         video = cv2.VideoCapture(args.device, cv2.CAP_DSHOW)
         video.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
         video.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
+
+    if video_streaming:
         app.add_image("video", np.zeros((camera_height,
                                          camera_width, 3)))
+
         aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
         aruco_params = cv2.aruco.DetectorParameters_create()
-
         tracker = InsideOutTracker(camera_matrix, map_data, max_regularizer = 1e3)
 
     HIGHLIGHT_COLOR = imgui.get_color_u32_rgba(1,0.5,0.2,1)
@@ -260,38 +277,55 @@ def main():
     while app.running:
         app.main_loop_begin()
 
-        if video is not None:
-            ret, image = video.read()
-            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            images["video"] = rgb_image
-            if ret:
+        if video_streaming:
+            aruco_ids = []
+            aruco_corners = []
+            aruco_corners_flat = []
+
+            have_image = False
+            if args.device >= 0:
+                have_image, image = video.read()
+            elif args.realsense:
+                try:
+                    frames = rs_pipeline.wait_for_frames()
+                    color_frame = frames.get_color_frame()
+                    image = np.array(color_frame.get_data(), np.uint8)
+                    have_image = True
+                except RuntimeError:
+                    have_image = False
+
+            if have_image:
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                images["video"] = rgb_image
                 app.update_image("video", rgb_image)
 
-            # update tracker
-            aruco_corners, aruco_ids, aruco_rejected = cv2.aruco.detectMarkers(
-                image,
-                aruco_dict,
-                parameters=aruco_params)
-            aruco_ids = aruco_ids if aruco_ids is not None else [] # aruco_ids is sometimes annoyingly None
-        
-            aruco_corners = [c[0] for c in aruco_corners]
-            aruco_ids = [i[0] for i in aruco_ids]
-            aruco_corners_flat = [np.array([c.flatten()]).T for c in aruco_corners]
-            
-            if not tracker_initted and tracker.error > 100:
-                tracker.update(aruco_ids, aruco_corners_flat, force_update = False)
-            else:
-                tracker_initted = True
+                # update tracker
+                aruco_corners, aruco_ids, aruco_rejected = cv2.aruco.detectMarkers(
+                    image,
+                    aruco_dict,
+                    parameters=aruco_params)
+                aruco_ids = aruco_ids if aruco_ids is not None else [] # aruco_ids is sometimes annoyingly None
 
-            if tracker_initted:
-                tracker.update(aruco_ids, aruco_corners_flat, force_update = True)
+                aruco_corners = [c[0] for c in aruco_corners]
+                aruco_ids = [i[0] for i in aruco_ids]
+                aruco_corners_flat = [np.array([c.flatten()]).T for c in aruco_corners]
+
+                if not tracker_initted and tracker.error > 100:
+                    tracker.update(aruco_ids, aruco_corners_flat, force_update = False)
+                else:
+                    tracker_initted = True
+
+                if tracker_initted:
+                    tracker.update(aruco_ids, aruco_corners_flat, force_update = True)
 
             viewpoints_data["video"] = tracker.tx_world_viewpoint
 
             imgui.begin("Inside Out Tracking")
+            imgui.text(f"video success {have_image}")
             display_width = imgui.get_window_width() - 10
             tid, w, h = app.get_image("video")
-            imgui.text(f"error {tracker.error}")
+            imgui.text(f"avg error {tracker.error/(len(aruco_ids) * 4 + 0.001):#.4g}")
+            imgui.text(f"converged {tracker.converged_guess}")
             imgui.text(f"regularizer {tracker.regularizer}")
             imgui.text(f"# detections {len(aruco_ids)}")
             overlayable = draw_overlayable_image(tid, w, h, display_width)
@@ -302,7 +336,7 @@ def main():
         imgui.begin("Select")
         display_width = imgui.get_window_width() - 10  
         
-        expanded_image_ids = image_ids if video is None else ["video"] + image_ids
+        expanded_image_ids = image_ids if not video_streaming else ["video"] + image_ids
         for image_id in expanded_image_ids:
             tid, w, h = app.get_image(image_id)
             overlayable = draw_overlayable_image(tid, w, h, display_width)
