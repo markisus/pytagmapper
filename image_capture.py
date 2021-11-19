@@ -87,18 +87,30 @@ Capture = namedtuple("Capture", ["image", "texture", "aruco_ids", "aruco_corners
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", "-d", type=int, help="cv2 video capture device", default=0)
-    args = parser.parse_args()
+    parser.add_argument("--device", "-d", type=int, help="cv2 video capture device", default=-1)
+    parser.add_argument("--realsense", "-rs", action="store_true", help="use pyrealsense api instead of cv2 for video streaming", default=False)
     
-    device = args.device
-    print("Using device", device)
-
+    args = parser.parse_args()
     camera_width = 1280
     camera_height = 720
-    camera = cv2.VideoCapture(device, cv2.CAP_DSHOW)
-    camera.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
-    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
 
+    if args.device >= 0:
+        device = args.device
+        print("Using device", device)
+        camera = cv2.VideoCapture(device, cv2.CAP_DSHOW)
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
+    elif args.realsense:
+        print("Using realsense")
+        import pyrealsense2 as rs
+        rs_pipeline = rs.pipeline()
+        rs_config = rs.config()
+        rs_config.enable_stream(rs.stream.color,
+                                camera_width, camera_height,
+                                rs.format.bgr8,
+                                30)
+        rs_pipeline.start(rs_config)        
+        
     aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
     aruco_params = cv2.aruco.DetectorParameters_create()
 
@@ -117,7 +129,17 @@ def main():
 
     while app.running:
         app.main_loop_begin()
-        ret, ctx.image = camera.read()
+
+        if args.device >= 0:
+            ret, ctx.image = camera.read()
+        elif args.realsense:
+            try:
+                frames = rs_pipeline.wait_for_frames()
+                color_frame = frames.get_color_frame()
+                ctx.image = np.array(color_frame.get_data(), np.uint8)
+                ret = True
+            except RuntimeError:
+                ret = False
 
         if ret:
             aruco_corners, aruco_ids, aruco_rejected = cv2.aruco.detectMarkers(
