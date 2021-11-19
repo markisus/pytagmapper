@@ -6,6 +6,12 @@ import math
 import numpy as np
 from pytagmapper.geometry import *
 
+def integerize_keys(data):
+    fixed = {}
+    for k, v in data.items():
+        fixed[int(k.strip())] = v
+    return fixed
+
 def map_lift_3d(map_data):
     map_type = map_data['map_type']
     tag_locations = map_data['tag_locations']

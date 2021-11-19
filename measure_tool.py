@@ -150,16 +150,26 @@ class CircleFit:
         ], dtype=np.float64)
         self.cross = self.cross_home.copy()
 
+    def update_vertices(self):
+        self.vertices = make_ngon(self.cx,self.cy,self.cr,self.num_segments)
+
+        # cross if for visualizing where the center is
+        self.cross = self.cross_home.copy()
+        self.cross[:3,:] *= self.cr * 0.12
+        self.cross += np.array([[self.cx, self.cy, 0, 0]]).T
+
+    def force_points(self):
+        if len(self.data_points) < 3:
+            self.data_points.append((self.cx + self.cr, self.cy))
+            self.data_points.append((self.cx - self.cr, self.cy))
+            self.data_points.append((self.cx, self.cy + self.cr))
+            self.data_points.append((self.cx, self.cy - self.cr))
+
     def add_point(self, x, y):
         self.data_points.append((x,y))
         if len(self.data_points) >= 3:
             self.cx, self.cy, self.cr = fit_circle(self.data_points)
-            self.vertices = make_ngon(self.cx,self.cy,self.cr,self.num_segments)
-
-            # cross if for visualizing where the center is
-            self.cross = self.cross_home.copy()
-            self.cross[:3,:] *= self.cr * 0.12
-            self.cross += np.array([[self.cx, self.cy, 0, 0]]).T
+            self.update_vertices()
 
     def clear(self):
         self.__init__()
@@ -168,6 +178,32 @@ class LineSegment:
     def __init__(self, x, y):
         self.start = (x, y)
         self.end = (x, y)
+
+def load_drawings(map_dir, tag_line_segments, tag_circles):
+    with open(get_path(map_dir, "drawings.json"), "r") as f:
+        data = json.load(f)
+
+    circles = integerize_keys(data["circles"])
+    lines = integerize_keys(data["lines"])
+
+    tag_line_segments.clear()
+    tag_circles.clear()
+
+    for tag_id, cs in circles.items():
+        for c in cs:
+            print("loading circle", c, "of tag", tag_id)
+            cfit = CircleFit()
+            cfit.cx, cfit.cy, cfit.cr = c[0], c[1], c[2]
+            cfit.update_vertices()
+            cfit.force_points()
+            tag_circles[tag_id].append(cfit)
+
+    for tag_id, ls in lines.items():
+        for l in ls:
+            lseg = LineSegment(0, 0)
+            lseg.start = (l[0], l[1])
+            lseg.end = (l[2], l[3])
+            tag_line_segments[tag_id].append(lseg)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -207,11 +243,13 @@ def main():
     selected_image_id = image_ids[0]
     selected_tag_id = tag_ids[0]
 
-    camera_matrix = load_camera_matrix(source_dir)
+    image_camera_matrix = load_camera_matrix(source_dir)
 
     rectified_view = RectifiedTagView(800, 60)
     tag_line_segments = defaultdict(list)
     tag_circles = defaultdict(list)
+
+    load_drawings(map_dir, tag_line_segments, tag_circles)
 
     show_help = True
 
@@ -246,6 +284,7 @@ def main():
         camera_width = images[selected_image_id].shape[1]
         camera_height = images[selected_image_id].shape[0]
 
+    video_camera_matrix = image_camera_matrix
     if args.realsense:
         print("Using realsense")
         import pyrealsense2 as rs
@@ -255,7 +294,20 @@ def main():
                                 camera_width, camera_height,
                                 rs.format.bgr8,
                                 30)
-        rs_pipeline.start(rs_config)        
+        selection = rs_pipeline.start(rs_config)
+        intrinsics = selection.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        fx, fy, cx, cy, = intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy
+        rs_camera_matrix = np.array([
+            [fx, 0, cx],
+            [ 0, fy, cy],
+            [ 0, 0, 1],
+        ])
+
+        video_camera_matrix = rs_camera_matrix
+        camera_matrix_delta = np.linalg.norm(rs_camera_matrix - image_camera_matrix)
+        if camera_matrix_delta > 1e-3:
+            print("Warning: video stream is using a different camera matrix than the one used for the still frames")
+        
     elif args.device >= 0:
         print("Using cv2 device", args.device)
         video = cv2.VideoCapture(args.device, cv2.CAP_DSHOW)
@@ -268,7 +320,7 @@ def main():
 
         aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
         aruco_params = cv2.aruco.DetectorParameters_create()
-        tracker = InsideOutTracker(camera_matrix, map_data, max_regularizer = 1e3)
+        tracker = InsideOutTracker(video_camera_matrix, map_data, max_regularizer = 1e3)
 
     HIGHLIGHT_COLOR = imgui.get_color_u32_rgba(1,0.5,0.2,1)
     IN_PROGRESS_COLOR = imgui.get_color_u32_rgba(1,0.2,0.5,1)
@@ -332,6 +384,7 @@ def main():
 
             if imgui.button("large regularizer"):
                 tracker.max_regularizer = 1e9
+            imgui.same_line()
             if imgui.button("small regularizer"):
                 tracker.max_regularizer = 1e3
 
@@ -348,6 +401,11 @@ def main():
         
         expanded_image_ids = image_ids if not video_streaming else ["video"] + image_ids
         for image_id in expanded_image_ids:
+            if image_id == "video":
+                camera_matrix = video_camera_matrix
+            else:
+                camera_matrix = image_camera_matrix
+
             tid, w, h = app.get_image(image_id)
             overlayable = draw_overlayable_image(tid, w, h, display_width)
 
@@ -416,6 +474,24 @@ def main():
         imgui.end()
 
         imgui.begin("Measure")
+        if imgui.button("save all drawings"):
+            circle_data = defaultdict(list)
+            line_data = defaultdict(list)
+            
+            for tag_id, line_segments in tag_line_segments.items():
+                for l in line_segments:
+                    line_data[tag_id].append((l.start[0], l.start[1], l.end[0], l.end[1]))
+
+            for tag_id, circle_fits in tag_circles.items():
+                for c in circle_fits:
+                    print("saving circle",(c.cx, c.cy, c.cr), "of tag",tag_id)
+                    circle_data[tag_id].append((c.cx, c.cy, c.cr))
+
+            save_data = {"circles": circle_data, "lines": line_data}
+            with open(get_path(map_dir, "drawings.json"), "w") as f:
+                json.dump(save_data, f)
+
+        
         display_width = imgui.get_window_width() - 10  
         imgui.text(f"image {selected_image_id}, tag {selected_tag_id}")
 
@@ -424,6 +500,11 @@ def main():
         imgui.same_line()
         if imgui.radio_button("circle", measure_tool == CIRCLE_TOOL):
             measure_tool = CIRCLE_TOOL
+
+        if selected_image_id == "video":
+            camera_matrix = video_camera_matrix
+        else:
+            camera_matrix = image_camera_matrix
 
         tid, w, h = app.get_image(selected_image_id)
         tx_world_viewpoint = viewpoints_data[selected_image_id]
