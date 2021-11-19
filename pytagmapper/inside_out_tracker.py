@@ -182,11 +182,12 @@ class InsideOutTracker:
             num_tags = len(tags)
             if num_tags >= 2:
                 pt_error = best_error / (num_tags * 4)
-                if pt_error <= 5: # px
+                if pt_error <= 30: # px
                     self.converged_guess = best_guess
 
         self.error = self.errors[best_guess]
         self.tx_world_viewpoint = self.txs_world_viewpoint[best_guess]
+        self.regularizer = self.regularizers[best_guess]
         self.best_guess = best_guess
 
     def update(self, tag_ids, tag_corners, force_update = False):
