@@ -69,7 +69,6 @@ def init_map_builder(camera_matrix, tag_side_lengths, map_ids, maps, viewpoints,
                                   init_tags = txs_world_tag)
 
     # add the viewpoints from the source data sets
-    print("viewpoints", viewpoints)
     for map_id in map_ids:
         for image_id, tags in source_data[map_id]["viewpoints"].items():
             tx_map_viewpoint = viewpoints[map_id][image_id]
@@ -132,15 +131,15 @@ if __name__ == "__main__":
             app.add_image(f"{map_id}_{image_id}", image)
 
     show_mb = False
-    show_fused = False
+    show_fused = True
     show_iotrackers = False
     optimize = False
     optimize_mb = False
     step = 0
 
     # phases
-    FUSION_PHASE = 0
-    REFINEMENT_PHASE = 1
+    FUSION_PHASE = "fusion_phase"
+    REFINEMENT_PHASE = "refinement_phase"
     phase = FUSION_PHASE
 
     image_map_overlaps = defaultdict(list)
@@ -219,11 +218,18 @@ if __name__ == "__main__":
 
         app.main_loop_begin()
         imgui.begin("Control")
+        imgui.text(f"phase {phase}")        
         _, optimize = imgui.checkbox("optimize", optimize)
-        imgui.text(f"phase {phase}")
+        if phase == FUSION_PHASE:
+            _, show_fused = imgui.checkbox("show fused", show_fused)
+            _, show_iotrackers = imgui.checkbox("show iotrackers", show_iotrackers)
 
-        show_fused = phase == FUSION_PHASE
-        show_iotrackers = phase == FUSION_PHASE
+        if phase == REFINEMENT_PHASE:
+            show_fused = False
+            show_iotrackers = False
+            
+
+
         show_mb = phase == REFINEMENT_PHASE
 
         if phase == REFINEMENT_PHASE:
@@ -332,6 +338,8 @@ if __name__ == "__main__":
                         projection = camera_matrix @ (tx_viewpoint_tag @ corners_mat)[:3,:]
                         projection /= projection[2,:]
                         overlay_polyline(image, projection[:2,:], side_colors, 1)
+                        center = np.mean(projection, axis=1)
+                        overlay_text(image, center[0], center[1], side_colors[0], str(tag_id))
 
             # using each inside out tracker, project tags into image
             for (image_id0, map_id), iotracker in iotrackers.items():
@@ -339,7 +347,10 @@ if __name__ == "__main__":
                     continue
 
                 if iotracker.converged_guess is None:
-                    fusion_converged = False
+                    if imgui.button("mark converged"):
+                        iotracker.converged_guess = iotracker.best_guess
+                    else:
+                        fusion_converged = False
 
                 imgui.text(f"{map_id} error {iotracker.error:#.4g}, converged {iotracker.converged_guess}")
 

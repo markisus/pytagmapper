@@ -96,6 +96,7 @@ class InsideOutTracker:
         self.errors = [float('inf') for _ in range(self.num_hypotheses)]
         self.regularizers = [self.max_regularizer for _ in range(self.num_hypotheses)]
         self.converged_guess = None
+        self.best_guess = 0
 
     def get_corners_mat(self, tag_id):
         return self.corners_mats.get(tag_id, self.default_corners_mat)
@@ -186,6 +187,7 @@ class InsideOutTracker:
 
         self.error = self.errors[best_guess]
         self.tx_world_viewpoint = self.txs_world_viewpoint[best_guess]
+        self.best_guess = best_guess
 
     def update(self, tag_ids, tag_corners, force_update = False):
         return self.update1(list(zip(tag_ids, tag_corners)), force_update)
