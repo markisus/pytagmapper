@@ -346,11 +346,13 @@ if __name__ == "__main__":
                 if image_id0 != image_id:
                     continue
 
+                imgui.push_id(f"{image_id0}_{map_id}")                
                 if iotracker.converged_guess is None:
                     if imgui.button("mark converged"):
                         iotracker.converged_guess = iotracker.best_guess
                     else:
                         fusion_converged = False
+                    imgui.same_line()
 
                 imgui.text(f"{map_id} error {iotracker.error:#.4g}, converged {iotracker.converged_guess}")
 
@@ -364,6 +366,8 @@ if __name__ == "__main__":
                         overlay_polyline(image, proj, side_colors, 1)
                         center = np.mean(proj, axis=1)
                         overlay_text(image, center[0], center[1], side_colors[0], str(tag_id))
+
+                imgui.pop_id()
 
         if fusion_converged and phase == FUSION_PHASE:
             phase = REFINEMENT_PHASE

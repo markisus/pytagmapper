@@ -322,12 +322,22 @@ def main():
 
             imgui.begin("Inside Out Tracking")
             imgui.text(f"video success {have_image}")
-            display_width = imgui.get_window_width() - 10
-            tid, w, h = app.get_image("video")
+            imgui.same_line()
+            imgui.text(f"# detections {len(aruco_ids)}")
             imgui.text(f"avg error {tracker.error/(len(aruco_ids) * 4 + 0.001):#.4g}")
             imgui.text(f"converged {tracker.converged_guess}")
-            imgui.text(f"regularizer {tracker.regularizer}")
-            imgui.text(f"# detections {len(aruco_ids)}")
+            imgui.text(f"regularizer {tracker.regularizer:#.4g}")
+            imgui.same_line()
+            imgui.text(f"max regularizer {tracker.max_regularizer:#.4g}")
+
+            if imgui.button("large regularizer"):
+                tracker.max_regularizer = 1e9
+            if imgui.button("small regularizer"):
+                tracker.max_regularizer = 1e3
+
+            display_width = imgui.get_window_width() - 10
+            tid, w, h = app.get_image("video")
+            
             overlayable = draw_overlayable_image(tid, w, h, display_width)
             for tag_id, corners in zip(aruco_ids, aruco_corners):
                 overlay_tag(overlayable, corners.T, tag_id, thickness=1)
