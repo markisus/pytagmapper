@@ -193,7 +193,7 @@ def load_data(data_dir = "data"):
 
     for file_path in glob.glob(os.path.join(data_dir, "tags_*.txt")):
         file_name = os.path.splitext(os.path.split(file_path)[-1])[0]
-        file_id = int(file_name.split("_")[-1])
+        file_id = file_name.split("_")[-1].strip()
         with open(file_path, "r") as f:
             data['viewpoints'][file_id] = parse_tag_file(f)
 
