@@ -179,7 +179,7 @@ class InsideOutTracker:
                     best_error = error
 
             # heuristic to check convergence
-            num_tags = len(tags)
+            num_tags = len([t for t, c in tags if t in self.txs_world_tag])
             if num_tags >= 2:
                 pt_error = best_error / (num_tags * 4)
                 if pt_error <= 30: # px
