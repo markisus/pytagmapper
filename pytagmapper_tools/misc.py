@@ -1,4 +1,5 @@
 import numpy as np
+import math # for math.pi
 
 def quad_contains_pt(cwise_quad, pt):
     pt = np.array(pt).flatten()
