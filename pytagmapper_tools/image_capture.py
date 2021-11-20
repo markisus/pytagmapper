@@ -1,4 +1,5 @@
 # WORK IN PROGRESS
+from hack_sys_path import *
 
 from imgui_sdl_wrapper import ImguiSdlWrapper
 from collections import namedtuple

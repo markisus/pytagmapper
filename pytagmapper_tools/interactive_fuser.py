@@ -1,3 +1,5 @@
+from hack_sys_path import *
+
 import copy
 from gl_util import GlRgbTexture
 from imgui_sdl_wrapper import ImguiSdlWrapper

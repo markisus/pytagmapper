@@ -1,3 +1,5 @@
+from hack_sys_path import *
+
 from pytagmapper.data import *
 from pytagmapper.geometry import *
 from pytagmapper.map_builder import *
@@ -70,7 +72,7 @@ def main():
             if viewpoint_converged:
                 if next_viewpoint_idx+1 <= len(viewpoint_ids):
                     need_add_viewpoint = True
-                elif abs(change) < 1e-6:
+                elif abs(change) < 1e-7 or avg_det_error < 0.1:
                     # no more viewpoints and converged
                     break
 

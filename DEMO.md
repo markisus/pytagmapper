@@ -8,8 +8,8 @@ Commands
 
     git clone https://github.com/markisus/pytagmapper
     cd pytagmapper
-    python build_map.py example_data
-    python show_map.py example_data
+    python pytagmapper_tools/build_map.py example_data
+    python pytagmapper_tools/show_map.py example_data
     
  Result
  ----
@@ -18,7 +18,7 @@ Commands
 
 Inside Out Tracking
 =====
-After building the map, you can run inside out tracking, see [inside_out_tracker_demo.py](https://github.com/markisus/pytagmapper/blob/main/inside_out_tracker_demo.py).
+After building the map, you can run inside out tracking, see [inside_out_tracker_demo.py](https://github.com/markisus/pytagmapper/blob/main/pytagmapper_tools/inside_out_tracker_demo.py).
 
 
 
@@ -26,7 +26,7 @@ https://user-images.githubusercontent.com/469689/139487287-1faedbd3-6c03-4f87-83
 
 Measure Tool
 =====
-You can also try out the [measure_tool](https://github.com/markisus/pytagmapper/blob/main/measure_tool.py).
+You can also try out the [measure_tool](https://github.com/markisus/pytagmapper/blob/main/pytagmapper_tools/measure_tool.py).
 
 
 https://user-images.githubusercontent.com/469689/140164076-1a53f7c5-664c-4cb6-895e-af9c1dac0fdd.mp4

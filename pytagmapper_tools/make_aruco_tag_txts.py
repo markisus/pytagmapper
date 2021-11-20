@@ -1,3 +1,5 @@
+from hack_sys_path import *
+
 import argparse
 from pytagmapper.data import *
 import cv2

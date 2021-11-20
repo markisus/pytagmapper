@@ -1,3 +1,5 @@
+from hack_sys_path import *
+
 from pytagmapper.data import *
 from pytagmapper.geometry import *
 from pytagmapper.project import *

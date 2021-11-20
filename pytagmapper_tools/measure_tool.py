@@ -1,3 +1,5 @@
+from hack_sys_path import *
+
 from gl_util import GlRgbTexture
 from imgui_sdl_wrapper import ImguiSdlWrapper
 from overlayable import *
@@ -180,8 +182,11 @@ class LineSegment:
         self.end = (x, y)
 
 def load_drawings(map_dir, tag_line_segments, tag_circles):
-    with open(get_path(map_dir, "drawings.json"), "r") as f:
-        data = json.load(f)
+    try:
+        with open(get_path(map_dir, "drawings.json"), "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {"circles": {}, "lines": {}}
 
     circles = integerize_keys(data["circles"])
     lines = integerize_keys(data["lines"])
