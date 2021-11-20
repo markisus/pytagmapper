@@ -25,3 +25,17 @@ def line_near_pt(px, py, qx, qy, x, y):
     xdist = np.dot(line_dir, pt - line_start)
     tol = 15
     return ydist < tol and -tol < xdist < line_length + tol
+
+def make_ngon(x, y, radius, num_segments):
+    theta = 2 * math.pi / num_segments
+    rot = math.cos(theta) + 1j * math.sin(theta)
+    current_rotor = 1.0 + 0j
+    vertices = np.empty((4, num_segments))
+    for i in range(num_segments):
+        vertices[0,i] = radius * current_rotor.real + x
+        vertices[1,i] = radius * current_rotor.imag + y
+        vertices[2,i] = 0
+        vertices[3,i] = 1
+        current_rotor *= rot
+    return vertices
+        

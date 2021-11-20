@@ -123,19 +123,6 @@ def overlay_measurement_line_label(overlayable, rpts, x1, y1, x2, y2, color):
                  measurement_line_label_str(x1, y1, x2, y2)
     )
 
-def make_ngon(x, y, radius, num_segments):
-    theta = 2 * math.pi / num_segments
-    rot = math.cos(theta) + 1j * math.sin(theta)
-    current_rotor = 1.0 + 0j
-    vertices = np.empty((4, num_segments))
-    for i in range(num_segments):
-        vertices[0,i] = radius * current_rotor.real + x
-        vertices[1,i] = radius * current_rotor.imag + y
-        vertices[2,i] = 0
-        vertices[3,i] = 1
-        current_rotor *= rot
-    return vertices
-        
 class CircleFit:
     def __init__(self):
         self.data_points = []
