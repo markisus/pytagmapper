@@ -225,6 +225,9 @@ if __name__ == "__main__":
         if phase == FUSION_PHASE:
             _, show_fused = imgui.checkbox("show fused", show_fused)
             _, show_iotrackers = imgui.checkbox("show iotrackers", show_iotrackers)
+            if imgui.button("mark all converged"):
+                for iotracker in iotrackers.values():
+                    iotracker.converged_guess = iotracker.best_guess
 
         if phase == REFINEMENT_PHASE:
             show_fused = False
