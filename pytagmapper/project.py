@@ -20,12 +20,12 @@ def get_corners_mat2d(size):
     mat[:2,:] *= size
     return mat
 
-def project(camera_matrix, tx_camera_tag, keypoints_mat):
+def project(camera_matrix, tx_camera_object, keypoints_mat):
     # keypoints_mat is expected to be (2, n)
     # where n is the number of keypoints
     num_kps = keypoints_mat.shape[1]
     
-    camera_kps = tx_camera_tag @ keypoints_mat
+    camera_kps = tx_camera_object @ keypoints_mat
     dimage_kps_dcamera = np.empty((num_kps*2,6))
 
     image_kps = camera_matrix @ camera_kps[:3,:]
@@ -55,13 +55,13 @@ def project(camera_matrix, tx_camera_tag, keypoints_mat):
             dimage_kps_dcamera[  2*kp_idx, i] = dxh
             dimage_kps_dcamera[2*kp_idx+1, i] = dyh
             
-    dimage_kps_dtag = dimage_kps_dcamera @ -SE3_adj(tx_camera_tag)
+    dimage_kps_dobject = dimage_kps_dcamera @ -SE3_adj(tx_camera_object)
 
     for i in range(num_kps):
         image_kps[:,i] /= image_kps[2,i] # homogenize
     image_kps = np.reshape(image_kps[:2,:], (num_kps*2,1), 'F')
 
-    return image_kps, dimage_kps_dcamera, dimage_kps_dtag
+    return image_kps, dimage_kps_dcamera, dimage_kps_dobject
 
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
