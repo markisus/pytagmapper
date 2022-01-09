@@ -7,6 +7,16 @@ def SE2_to_SE3(SE2):
     SE3[:2,3] = SE2[:2,2]
     return SE3
 
+def SE3_to_SE2(SE3):
+    """try to coerce an SE3 into an SE2
+    by assuming it's mostly flat in xy plane
+    """
+    SE2 = np.eye(3, dtype=np.float64)
+    SE2[:2,:2] = SE3[:2,:2]
+    SE2[:2,2:3] = SE3[:2,3:4]
+    fix_SE2(SE2)
+    return SE2
+
 def xyt_to_SE3(xyt):
     x = xyt[0,0]
     y = xyt[1,0]

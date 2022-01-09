@@ -4,6 +4,17 @@ from pytagmapper.geometry import *
 from pytagmapper.info_state import *
 from pytagmapper.project import project, get_corners_mat
 from pytagmapper.heuristics import *
+import cv2
+
+def solvePnPWrapper(obj_points, img_points, camera_matrix):
+    succ, rvec, tvec = cv2.solvePnP(obj_points, img_points, camera_matrix, None)
+    if not succ:
+        raise RuntimeError("solvePnP failed")
+    rot, _ = cv2.Rodrigues(rvec)
+    tx_camera_obj = np.eye(4, dtype=np.float64)
+    tx_camera_obj[:3,:3] = rot
+    tx_camera_obj[:3,3:4] = tvec
+    return tx_camera_obj
 
 def make_huber_mat(k, residual):
     # caculate huber loss
@@ -97,17 +108,93 @@ class MapBuilder:
             [0,  0,  0, 1],
         ])
 
+    def get_tag_side_length(self, tag_id):
+        if tag_id in self.tag_side_lengths:
+            tag_side_length = self.tag_side_lengths[tag_id]
+        else:
+            tag_side_length = self.default_tag_side_length
+        return tag_side_length
+
+    def check_dims(self):
+        for tx in self.txs_world_tag:
+            if tx.shape != (self.tx_world_tag_dim, self.tx_world_tag_dim):
+                raise RuntimeError("Bad dimension", tx.shape)
+
     def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None, init_tags = None):
+        if init_tags is None:
+            init_tags = {}
+
         self.viewpoint_id_to_idx[viewpoint_id] = len(self.viewpoint_ids)
         self.viewpoint_ids.append(viewpoint_id)
 
+        overlapping_tag_ids = list(
+            self.tag_id_to_idx.keys() & tags.keys())
+
         if init_viewpoint is None:
-            if self.txs_world_viewpoint:
-                # use the previously added viewpoint as a guess
-                init_viewpoint = self.txs_world_viewpoint[-1]
+            if not overlapping_tag_ids:
+                # there is no overlap with the existing map...
+                # should we even allow this (?)
+                if self.txs_world_viewpoint:
+                    # use the last viewpoint
+                    print("No overlap with existing map!")
+                    init_viewpoint = self.txs_world_viewpoint[-1]
+                else:
+                    # use the default init viewpoint
+                    init_viewpoint = self.init_viewpoint
             else:
-                init_viewpoint = self.init_viewpoint
-        
+                # try to add this viewpoint into the scene
+                # by registering against overlapping tag ids
+
+                # print("Initializing viewpoint")
+
+                # get world coordinates of the overlapping tags
+                tags_world_coords = []
+                for tag_id in overlapping_tag_ids:
+                    tag_idx = self.tag_id_to_idx[tag_id]
+                    corners_mat = get_corners_mat(self.get_tag_side_length(tag_id))
+
+                    # lift tag pose to SE3
+                    if self.map_type == '2d':
+                        tx_world_tag = SE2_to_SE3(self.txs_world_tag[tag_idx])
+                    else:
+                        tx_world_tag = self.txs_world_tag[tag_idx]
+
+                    tag_world_coords = (tx_world_tag @ corners_mat)[:3,:].T
+                    tags_world_coords.append(tag_world_coords)
+
+                # get pixel coordinates of the overlapping tags
+                tags_img_coords = []
+                for tag_id in overlapping_tag_ids:
+                    tags_img_coords.append(np.array(tags[tag_id]).reshape(4,2))
+
+                tags_world_coords = np.vstack(tags_world_coords)
+                tags_img_coords = np.vstack(tags_img_coords)
+                tx_camera_world = solvePnPWrapper(tags_world_coords, tags_img_coords, self.camera_matrix)
+                init_viewpoint = SE3_inv(tx_camera_world)
+
+        # initialize the tag positions
+        new_tag_ids = list((tags.keys() - self.tag_id_to_idx.keys()) - init_tags.keys())
+        for tag_id in new_tag_ids:
+            # print("initializing tag", tag_id)
+            detection = tags[tag_id]
+            detection = np.array(detection).reshape((4,2))
+            corners_mat = np.array(get_corners_mat(self.get_tag_side_length(tag_id))[:3,:].T)
+            tx_camera_tag = solvePnPWrapper(corners_mat, detection, self.camera_matrix)
+            tx_world_tag_3d = init_viewpoint @ tx_camera_tag
+
+            if self.map_type == '2d':
+                tx_world_tag = SE3_to_SE2(tx_world_tag_3d)
+            elif self.map_type == '2.5d':
+                tx_world_tag_2d = SE3_to_SE2(tx_world_tag_3d)
+                tx_world_tag = SE2_to_SE3(tx_world_tag_2d)
+                tx_world_tag[2,3] = tx_world_tag_3d[2,3] # fix z component
+            elif self.map_type == '3d':
+                tx_world_tag = tx_world_tag_3d
+            else:
+                raise RuntimeError("Unsupported map type", self.map_type)
+            
+            init_tags[tag_id] = tx_world_tag
+
         self.txs_world_viewpoint.append(init_viewpoint)
         self.viewpoint_infos.append(InfoState6())
         viewpoint_idx = self.viewpoint_id_to_idx[viewpoint_id]
@@ -116,21 +203,16 @@ class MapBuilder:
             if tag_id not in self.tag_id_to_idx:
                 self.tag_id_to_idx[tag_id] = len(self.tag_ids)
                 self.tag_ids.append(tag_id)
-                if init_tags is not None and tag_id in init_tags:
+                if tag_id in init_tags:
                     self.txs_world_tag.append(init_tags[tag_id])
                 else:
                     self.txs_world_tag.append(np.eye(self.tx_world_tag_dim))
                 self.tag_infos.append(self.tag_info_cls())
                 self.tag_detections.append([])
-
-                if tag_id in self.tag_side_lengths:
-                    tag_side_length = self.tag_side_lengths[tag_id]
-                else:
-                    tag_side_length = self.default_tag_side_length
+                tag_side_length = self.get_tag_side_length(tag_id)
                 self.corners_mats.append(get_corners_mat(size=tag_side_length))
 
             tag_idx = self.tag_id_to_idx[tag_id]
-            # print("viewpoint", viewpoint_id, "contained tag at idx", tag_idx)
 
             dim_detection_factor_input = 6 + self.tag_dof
             self.detections.append((tag_idx, viewpoint_idx, np.reshape(tag_corners, (8,1))))
@@ -292,6 +374,9 @@ class MapBuilder:
 
     def get_total_detection_error(self):
         return sum(self.detection_errors)
+
+    def get_avg_detection_error(self):
+        return self.get_total_detection_error()/len(self.detection_errors)
 
     def update(self):
         # copy linearization point

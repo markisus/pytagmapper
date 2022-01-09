@@ -229,4 +229,10 @@ def parse_tag_file(f):
             current_tag = tags[tag_id]
         else:
             current_tag += [float(s) for s in line.split(" ")]
-    return tags    
+    return tags
+
+def get_tag_side_length(scene_data, tag_id):
+    if tag_id in scene_data['tag_side_lengths']:
+        return scene_data['tag_side_lengths'][tag_id]
+    else:
+        return scene_data['tag_side_lengths']['default']

@@ -1,108 +1,155 @@
 from hack_sys_path import *
-
-from pytagmapper.data import *
-from pytagmapper.geometry import *
-from pytagmapper.map_builder import *
-from pytagmapper.project import *
 import argparse
-import math
-import matplotlib.pyplot as plt
+import random
+from pytagmapper import data
+from pytagmapper import project
+from pytagmapper.geometry import *
+from pytagmapper.map_builder import MapBuilder
+
+import cv2
 import numpy as np
 
-def main():
-    parser = argparse.ArgumentParser(description='Build a map from images of tags.')
-    parser.add_argument('data_dir', type=str, help='input data directory')
-    parser.add_argument('--output-dir', '-o', type=str, help='output data directory', default='')
-    parser.add_argument('--mode', type=str, default='2d', help='output data directory')
+def solvePnPWrapper(obj_points, img_points, camera_matrix):
+    succ, rvec, tvec = cv2.solvePnP(obj_points, img_points, camera_matrix, None)
+    if not succ:
+        raise RuntimeError("solvePnP failed")
+    rot, _ = cv2.Rodrigues(rvec)
+    tx_camera_obj = np.eye(4, dtype=np.float64)
+    tx_camera_obj[:3,:3] = rot
+    tx_camera_obj[:3,3:4] = tvec
+    return tx_camera_obj
+
+def add_viewpoint(source_data, viewpoint_id, map_builder, total_viewpoints):
+    viewpoint = source_data['viewpoints'][viewpoint_id]
+
+    map_builder.add_viewpoint(viewpoint_id,
+                              viewpoint)
+
+    map_builder.relinearize()
+
+    error = map_builder.get_avg_detection_error()
+    change_pct = 1
+    improved = False
+    num_its = 0
+
+    try:
+        while (improved and change_pct >= 1e-3) or error >= 0.5 or num_its <= 3:
+            print(f"[{len(map_builder.viewpoint_ids)}/{total_viewpoints}] change_pct {change_pct} error {error}")
+            prev_error = error
+            for i in range(20):
+                map_builder.send_detection_to_viewpoint_msgs()
+                map_builder.send_detection_to_tag_msgs()
+            improved = map_builder.update()
+            error = map_builder.get_avg_detection_error()
+            delta = max(prev_error - error, 0)
+            change_pct = delta/prev_error
+            num_its += 1
+
+    except KeyboardInterrupt:
+        pass
     
+    return map_builder
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Cluster images based on shared tags")
+    parser.add_argument('directory', type=str, help='scene data directory')
+    parser.add_argument('--output-dir', '-o', type=str, help='output data directory', default='')
+    parser.add_argument('--mode', type=str, default='3d', help='2d, 2.5d, or 3d (default 3d)')
     args = parser.parse_args()
+
     if args.mode not in ['2.5d', '3d', '2d']:
         raise RuntimeError("Unexpected map type", args.mode)
 
-    data_dir = args.data_dir
-    output_dir = args.output_dir or args.data_dir
+    output_dir = args.output_dir or args.directory
+    scene_data = data.load_data(args.directory)
 
-    if not os.path.exists(output_dir):
-        os.mkdir(output_dir)
-    
-    data = load_data(data_dir)
+    viewpoints = scene_data['viewpoints']
+    viewpoint_ids = list(viewpoints.keys())
+    random.shuffle(viewpoint_ids)
+    print(f"viewpoint ids {viewpoint_ids}")
 
-    img_data = load_images(data_dir)
+    used_viewpoints = set()
 
-    map_builder = MapBuilder(data['camera_matrix'],
-                             data['tag_side_lengths'],
+    # get the image with the most tags
+    best_viewpoint = 0
+    best_num_tags = -1
+    for viewpoint_id in viewpoint_ids:
+        if len(viewpoints[viewpoint_id]) > best_num_tags:
+            best_num_tags = len(viewpoints[viewpoint_id])
+            best_viewpoint = viewpoint_id
+
+    print("best viewpoint was ", best_viewpoint)
+    print("best num tags ", best_num_tags)
+
+    map_builder = MapBuilder(scene_data['camera_matrix'],
+                             scene_data['tag_side_lengths'],
                              args.mode)
 
+    map_builder.add_viewpoint(best_viewpoint,
+                              scene_data['viewpoints'][best_viewpoint])
+    map_builder.relinearize()
+    used_viewpoints.add(best_viewpoint)
 
-    viewpoint_ids = sorted(data["viewpoints"].keys())
-    next_viewpoint_idx = 0
-    need_add_viewpoint = True
+    while len(viewpoints.keys() - used_viewpoints):
+        # find the viewpoint with the most overlap with the map
+        best_viewpoint = -1
+        best_overlap = {}
+        for viewpoint_id in viewpoint_ids:
+            if viewpoint_id in used_viewpoints:
+                continue
+            overlap = viewpoints[viewpoint_id].keys() & map_builder.tag_id_to_idx.keys()
+            if len(overlap) > len(best_overlap):
+                best_overlap = overlap
+                best_viewpoint = viewpoint_id
 
-    # for viewpoint_id, tags in data["viewpoints"].items():
-    #     map_builder.add_viewpoint(viewpoint_id, tags)
-    # map_builder.relinearize()
-    print("Starting")
+        print("best overlap from viewpoint", best_viewpoint, "of len", len(best_overlap))
+        add_viewpoint(scene_data, best_viewpoint, map_builder, len(scene_data['viewpoints']))
+        used_viewpoints.add(best_viewpoint)
 
-    prev_error = float('inf')
-    while True:
-        if need_add_viewpoint:
-            viewpoint_id = viewpoint_ids[next_viewpoint_idx]
-            tags = data["viewpoints"][viewpoint_id]
-            map_builder.add_viewpoint(viewpoint_id, tags)
-            print("Added viewpoint", viewpoint_id)
-            map_builder.relinearize()
-            need_add_viewpoint = False
-            next_viewpoint_idx += 1            
-        
-        for i in range(20):
-            map_builder.send_detection_to_viewpoint_msgs()
-            map_builder.send_detection_to_tag_msgs()
-        improved = map_builder.update()
-        error = map_builder.get_total_detection_error()
+    error = map_builder.get_avg_detection_error()
+    change_pct = 1
+    improved = False
+    num_its = 0
+    try:
+        while (improved and change_pct >= 1e-4) or error >= 0.1 or num_its < 3:
+            print("[final] change_pct", change_pct, "error", error)
+            prev_error = error
+            for i in range(20):
+                map_builder.send_detection_to_viewpoint_msgs()
+                map_builder.send_detection_to_tag_msgs()
+            improved = map_builder.update()
+            error = map_builder.get_avg_detection_error()
+            delta = max(prev_error - error, 0)
+            change_pct = delta/prev_error
+            num_its += 1
 
-        if prev_error != float('inf'):
-            delta = error - prev_error
-            change = delta/prev_error
-            avg_det_error = error / len(map_builder.detections)
+            if (improved and change_pct <= 1e-5):
+                # give up
+                break
+    except KeyboardInterrupt:
+        pass
 
-            print("tracking", next_viewpoint_idx, "viewpoints",
-                  "error", error, "avg_error", avg_det_error, "change", change*100, "%")
-
-            viewpoint_converged = improved and (abs(change) < 1e-5 or avg_det_error < 10)
-            if viewpoint_converged:
-                if next_viewpoint_idx+1 <= len(viewpoint_ids):
-                    need_add_viewpoint = True
-                elif abs(change) < 1e-7 or avg_det_error < 0.1:
-                    # no more viewpoints and converged
-                    break
-
-        prev_error = error
-
-    print("Saving to", output_dir)
-    save_viewpoints_json(
-            output_dir,
-            map_builder.viewpoint_ids,
-            map_builder.txs_world_viewpoint)
+    print("saving to", output_dir)
+    data.save_viewpoints_json(
+        output_dir,
+        map_builder.viewpoint_ids,
+        map_builder.txs_world_viewpoint)
 
     if args.mode == '3d':
-        save_map3d_json(
+        data.save_map3d_json(
             output_dir,
             map_builder.tag_side_lengths,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     elif args.mode == '2.5d':
-        save_map2p5d_json(
+        data.save_map2p5d_json(
             output_dir,
             map_builder.tag_side_lengths,
             map_builder.tag_ids,
             map_builder.txs_world_tag)
     else:
-        save_map_json(
+        data.save_map_json(
             output_dir,
             map_builder.tag_side_lengths,
             map_builder.tag_ids,
-            map_builder.txs_world_tag)
-
-if __name__ == "__main__":
-    main()
-    
+            map_builder.txs_world_tag)    
