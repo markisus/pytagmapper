@@ -17,17 +17,6 @@ import math
 import numpy as np
 from collections import deque, defaultdict
 
-def overlay_polyline(overlayable, polyline, colors, thickness):
-    for i in range(polyline.shape[1]):
-        ni = (i + 1) % polyline.shape[1]
-        overlay_line(overlayable,
-                     polyline[0,i],
-                     polyline[1,i],
-                     polyline[0,ni],
-                     polyline[1,ni],
-                     colors[i],
-                     thickness)
-
 def overlay_tag(overlayable, tag_corners, tag_id = None, thickness = 1):
     side_colors = [
         imgui.get_color_u32_rgba(1,0,0,1),
