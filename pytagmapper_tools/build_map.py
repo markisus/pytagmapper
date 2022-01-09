@@ -5,6 +5,7 @@ from pytagmapper import data
 from pytagmapper import project
 from pytagmapper.geometry import *
 from pytagmapper.map_builder import MapBuilder
+import sys
 
 import cv2
 import numpy as np
@@ -34,7 +35,8 @@ def add_viewpoint(source_data, viewpoint_id, map_builder, total_viewpoints):
 
     try:
         while (improved and change_pct >= 1e-3) or error >= 0.5 or num_its <= 3:
-            print(f"[{len(map_builder.viewpoint_ids)}/{total_viewpoints}] change_pct {change_pct} error {error}")
+            print(f"[{len(map_builder.viewpoint_ids)}/{total_viewpoints}] change {change_pct*100:#.4g}% error {error:#.4g}\r", end='')            
+            sys.stdout.flush()
             prev_error = error
             for i in range(20):
                 map_builder.send_detection_to_viewpoint_msgs()
@@ -66,7 +68,7 @@ if __name__ == "__main__":
     viewpoints = scene_data['viewpoints']
     viewpoint_ids = list(viewpoints.keys())
     random.shuffle(viewpoint_ids)
-    print(f"viewpoint ids {viewpoint_ids}")
+    # print(f"viewpoint ids {viewpoint_ids}")
 
     used_viewpoints = set()
 
@@ -78,8 +80,8 @@ if __name__ == "__main__":
             best_num_tags = len(viewpoints[viewpoint_id])
             best_viewpoint = viewpoint_id
 
-    print("best viewpoint was ", best_viewpoint)
-    print("best num tags ", best_num_tags)
+    # print("best viewpoint was ", best_viewpoint)
+    # print("best num tags ", best_num_tags)
 
     map_builder = MapBuilder(scene_data['camera_matrix'],
                              scene_data['tag_side_lengths'],
@@ -90,7 +92,9 @@ if __name__ == "__main__":
     map_builder.relinearize()
     used_viewpoints.add(best_viewpoint)
 
-    while len(viewpoints.keys() - used_viewpoints):
+    print("Optimizing viewpoint. ctrl+c to skip.")
+
+    while viewpoints.keys() - used_viewpoints:
         # find the viewpoint with the most overlap with the map
         best_viewpoint = -1
         best_overlap = {}
@@ -102,7 +106,7 @@ if __name__ == "__main__":
                 best_overlap = overlap
                 best_viewpoint = viewpoint_id
 
-        print("best overlap from viewpoint", best_viewpoint, "of len", len(best_overlap))
+        # print("best overlap from viewpoint", best_viewpoint, "of len", len(best_overlap))
         add_viewpoint(scene_data, best_viewpoint, map_builder, len(scene_data['viewpoints']))
         used_viewpoints.add(best_viewpoint)
 
@@ -112,7 +116,8 @@ if __name__ == "__main__":
     num_its = 0
     try:
         while (improved and change_pct >= 1e-4) or error >= 0.1 or num_its < 3:
-            print("[final] change_pct", change_pct, "error", error)
+            print(f"[final] change {change_pct*100:#.4g}% error {error:#.4g}\r", end='')
+            sys.stdout.flush()
             prev_error = error
             for i in range(20):
                 map_builder.send_detection_to_viewpoint_msgs()
@@ -129,7 +134,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
 
-    print("saving to", output_dir)
+    print("\r" + " "*100, end='') # clear out the loading bar
+    print("\rSaving to", output_dir)
     data.save_viewpoints_json(
         output_dir,
         map_builder.viewpoint_ids,
