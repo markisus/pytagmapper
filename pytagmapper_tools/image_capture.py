@@ -94,6 +94,10 @@ def main():
     args = parser.parse_args()
     camera_width = 1280
     camera_height = 720
+    camera_matrix = None # populated from camera intrinsics if using realsense
+    rs_pipeline = None # populated with realsense object if using realsense
+    camera = None # populated with VideoCapture object if using opencv
+
 
     if args.device >= 0:
         device = args.device
@@ -110,7 +114,14 @@ def main():
                                 camera_width, camera_height,
                                 rs.format.bgr8,
                                 30)
-        rs_pipeline.start(rs_config)        
+        selection = rs_pipeline.start(rs_config)
+        intrinsics = selection.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        fx, fy, cx, cy, = intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy
+        camera_matrix = np.array([
+            [fx, 0, cx],
+            [ 0, fy, cy],
+            [ 0, 0, 1],
+        ])
         
     aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
     aruco_params = cv2.aruco.DetectorParameters_create()
@@ -168,10 +179,19 @@ def main():
                 os.mkdir(ctx.save_dir)
             for capture_idx, capture in enumerate(ctx.captures):
                 cv2.imwrite(os.path.join(ctx.save_dir,f"image_{capture_idx + ctx.capture_idx_offset}.png"), capture.image)
+            if camera_matrix is not None:
+                with open(os.path.join(ctx.save_dir, "camera_matrix.txt"), "w") as f:
+                    for row in camera_matrix:
+                        f.write(" ".join(str(d) for d in row.tolist()) + "\n")
 
     del ctx
     app.destroy()
-    camera.release()
+
+    if camera is not None:
+        camera.release()
+
+    if rs_pipeline is not None:
+        rs_pipeline.stop()
 
 if __name__ == "__main__":
     main()
