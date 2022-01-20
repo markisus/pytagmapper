@@ -1,7 +1,7 @@
 pytagmapper
 ====
 
-pytagmapper is a python3 SLAM library for square fiducial tags in the style of AprilTag and ArUco tags. Given a set tags with unknown poses lying in a plane, and a set of pixel detections in images from unknown camera views, pytagmapper will back out both the pose of each tag and the pose of each camera view.  
+pytagmapper is a python3 SLAM library for square fiducial tags in the style of AprilTag and ArUco tags. Given a set tags with unknown poses, and a set of pixel detections in images from unknown camera views, pytagmapper will back out both the pose of each tag and the pose of each camera view.  
 
 Demo
 ====
