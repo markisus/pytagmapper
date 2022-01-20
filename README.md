@@ -30,6 +30,7 @@ Then build and display the map. `build_map.py` takes optional argument `--mode` 
     python pytagmapper_tools/build_map.py ~/my_map_data
     python pytagmapper_tools/show_map.py ~/my_map    
     
+pytagmapper builds the map by adding in viewpoints to the optimizer one at a time. It's heuristics to know when to advance to the next viewpoint are currently very conservative. Help it along by pressing ctrl+c to advance to the next viewpoint when the current error gets low enough.
 
 # Tags Txt Format
 `tags_{id}.txt` is a file containing a list of all tags detected `image_{id}.png`. See [example_data/tags_0.txt](https://github.com/markisus/pytagmapper/blob/main/example_data/tags_0.txt) for an example. If you are using ArUco, you can use the `make_aruco_tag_txts.py` script to generate these tag txts.
