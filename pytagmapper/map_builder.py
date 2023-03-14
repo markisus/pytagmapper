@@ -69,8 +69,8 @@ class MapBuilder:
         self.corners_mats = []
 
         # linearization
-        self.txs_world_viewpoint = []
-        self.txs_world_tag = []
+        self.se3s_world_tag = []
+        self.se3s_world_viewpoint = []
 
         # detection factor data
         self.detection_jacobians = []
@@ -115,11 +115,6 @@ class MapBuilder:
             tag_side_length = self.default_tag_side_length
         return tag_side_length
 
-    def check_dims(self):
-        for tx in self.txs_world_tag:
-            if tx.shape != (self.tx_world_tag_dim, self.tx_world_tag_dim):
-                raise RuntimeError("Bad dimension", tx.shape)
-
     def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None, init_tags = None):
         if init_tags is None:
             init_tags = {}
@@ -134,10 +129,10 @@ class MapBuilder:
             if not overlapping_tag_ids:
                 # there is no overlap with the existing map...
                 # should we even allow this (?)
-                if self.txs_world_viewpoint:
+                if self.se3s_world_viewpoint:
                     # use the last viewpoint
                     print("No overlap with existing map!")
-                    init_viewpoint = self.txs_world_viewpoint[-1]
+                    init_viewpoint = se3_exp(self.se3s_world_viewpoint[-1])
                 else:
                     # use the default init viewpoint
                     init_viewpoint = self.init_viewpoint
@@ -154,11 +149,7 @@ class MapBuilder:
                     corners_mat = get_corners_mat(self.get_tag_side_length(tag_id))
 
                     # lift tag pose to SE3
-                    if self.map_type == '2d':
-                        tx_world_tag = SE2_to_SE3(self.txs_world_tag[tag_idx])
-                    else:
-                        tx_world_tag = self.txs_world_tag[tag_idx]
-
+                    tx_world_tag = se3_exp(self.se3s_world_tag[tag_idx])
                     tag_world_coords = (tx_world_tag @ corners_mat)[:3,:].T
                     tags_world_coords.append(tag_world_coords)
 
@@ -195,7 +186,7 @@ class MapBuilder:
             
             init_tags[tag_id] = tx_world_tag
 
-        self.txs_world_viewpoint.append(init_viewpoint)
+        self.se3s_world_viewpoint.append(SE3_log(init_viewpoint))
         self.viewpoint_infos.append(InfoState6())
         viewpoint_idx = self.viewpoint_id_to_idx[viewpoint_id]
         viewpoint_detections_start = len(self.detections)
@@ -204,9 +195,9 @@ class MapBuilder:
                 self.tag_id_to_idx[tag_id] = len(self.tag_ids)
                 self.tag_ids.append(tag_id)
                 if tag_id in init_tags:
-                    self.txs_world_tag.append(init_tags[tag_id])
+                    self.se3s_world_tag.append(SE3_log(init_tags[tag_id]))
                 else:
-                    self.txs_world_tag.append(np.eye(self.tx_world_tag_dim))
+                    self.se3s_world_tag.append(np.zeros((6,1), dtype=float)
                 self.tag_infos.append(self.tag_info_cls())
                 self.tag_detections.append([])
                 tag_side_length = self.get_tag_side_length(tag_id)
@@ -237,8 +228,7 @@ class MapBuilder:
 
         viewpoint_info = self.viewpoint_infos[viewpoint_idx]        
         delta = np.linalg.solve(viewpoint_info.matrix, viewpoint_info.vector)
-        self.txs_world_viewpoint[viewpoint_idx] = self.txs_world_viewpoint[viewpoint_idx] @ se3_exp(delta)
-        fix_SE3(self.txs_world_viewpoint[viewpoint_idx])
+        self.se3s_world_viewpoint[viewpoint_idx] = self.se3s_world_viewpoint[viewpoint_idx] + delta
         viewpoint_info.clear()
         viewpoint_info.matrix = self.regularizer * np.eye(6)
 
@@ -257,6 +247,15 @@ class MapBuilder:
         for det_idx in range(*self.viewpoint_detections[viewpoint_idx]):
             self.send_detection_to_tag_msg(det_idx)
 
+    def project_delta(self, delta_in):
+        delta = delta_in.copy()                                               
+        if self.map_type == "2d":
+            delta[5,0] = 0 # no z-component
+            delta[:2,0] = 0 # only z-rotation
+        elif self.map_type == "2.5d":
+            delta[:2,0] = 0 # only z-rotation
+        return delta
+
     def update_tag(self, tag_idx):
         # [ ]_____( )
         # [ ]_____/
@@ -265,18 +264,8 @@ class MapBuilder:
 
         tag_info = self.tag_infos[tag_idx]
 
-        delta = np.linalg.solve(tag_info.matrix, tag_info.vector)
-        if self.map_type == "2d":
-            self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se2_exp(delta)
-        elif self.map_type == "2.5d":
-            # haven't implemented exp for SE2xR, so just lift to SE3
-            se3_delta = np.zeros((6,1))
-            se3_delta[2:,:] = delta # [0,0,wz,x,y,z]
-            self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se3_exp(se3_delta)
-        elif self.map_type == "3d":
-            self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se3_exp(delta)
-        else:
-            raise RuntimeError("Unsupported map type", self.map_type)
+        delta = self.project_delta(np.linalg.solve(tag_info.matrix, tag_info.vector))
+        se3s_world_tag[tag_idx] += delta
         
         tag_info.clear()
         tag_info.matrix = self.regularizer * np.eye(self.tag_dof)
@@ -298,28 +287,15 @@ class MapBuilder:
     def relinearize_detection(self, det_idx):
         detection = self.detections[det_idx]
         tag_idx, viewpoint_idx, tag_corners = detection
-        tx_world_tag = self.txs_world_tag[tag_idx]
-        if self.map_type == "2d":
-            tx_world_tag = SE2_to_SE3(tx_world_tag)
-
-        tx_world_viewpoint = self.txs_world_viewpoint[viewpoint_idx]
+        tx_world_tag = se3_exp(self.se3s_world_tag[tag_idx])
+        tx_world_viewpoint = se3_exp(elf.se3s_world_viewpoint[viewpoint_idx])
         tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
         image_corners, dimage_corners_dcamera, dimage_corners_dtag = project(self.camera_matrix, tx_viewpoint_tag, self.corners_mats[tag_idx])
-        self.detection_jacobians[det_idx][:,:6] = dimage_corners_dcamera
-        if self.map_type == "2d":
-            self.detection_jacobians[det_idx][:,6+0] = dimage_corners_dtag[:,2] # wz
-            self.detection_jacobians[det_idx][:,6+1] = dimage_corners_dtag[:,3] # dx
-            self.detection_jacobians[det_idx][:,6+2] = dimage_corners_dtag[:,4] # dy
-        elif self.map_type == "2.5d":
-            self.detection_jacobians[det_idx][:,6+0] = dimage_corners_dtag[:,2] # wz
-            self.detection_jacobians[det_idx][:,6+1] = dimage_corners_dtag[:,3] # dx
-            self.detection_jacobians[det_idx][:,6+2] = dimage_corners_dtag[:,4] # dy
-            self.detection_jacobians[det_idx][:,6+3] = dimage_corners_dtag[:,5] # dz
-        elif self.map_type == "3d":
-            self.detection_jacobians[det_idx][:,6:] = dimage_corners_dtag
-        else:
-            raise RuntimeError("Unsupported map type", self.map_type)
+        dimage_corners_dobject_global = dimage_corners_dobject @ se3_left_jacobian(se3_world_object);
+        dimage_corners_dcamera_global = dimage_corners_dcamera @ se3_left_jacobian(se3_world_camera);
 
+        self.detection_jacobians[det_idx][:,:6] = dimage_corners_dcamera
+        self.detection_jacobians[det_idx][:,6:] = dimage_corners_dtag
         self.detection_projections[det_idx] = image_corners
         residual = image_corners - tag_corners
         self.detection_residuals[det_idx] = residual
@@ -380,57 +356,21 @@ class MapBuilder:
 
     def update(self):
         # copy linearization point
-        txs_world_viewpoint_backup = [tx.copy() for tx in self.txs_world_viewpoint]
-        txs_world_tag_backup = [tx.copy() for tx in self.txs_world_tag]
+        se3s_world_viewpoint_backup = [tx.copy() for tx in self.se3s_world_viewpoint]
+        se3s_world_tag_backup = [tx.copy() for tx in self.se3s_world_tag]
 
         for viewpoint_idx, viewpoint_info in enumerate(self.viewpoint_infos):
             delta = np.linalg.solve(viewpoint_info.matrix, viewpoint_info.vector)
-            self.txs_world_viewpoint[viewpoint_idx] = self.txs_world_viewpoint[viewpoint_idx] @ se3_exp(delta)
-            fix_SE3(self.txs_world_viewpoint[viewpoint_idx])
+            self.se3s_world_viewpoint[viewpoint_idx] = self.se3s_world_viewpoint[viewpoint_idx] + delta
 
         for tag_idx, tag_info in enumerate(self.tag_infos):
-            delta = np.linalg.solve(tag_info.matrix, tag_info.vector)
-            if self.map_type == "2d":
-                self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se2_exp(delta)
-            elif self.map_type == "2.5d":
-                # haven't implemented exp for SE2xR, so just lift to SE3
-                se3_delta = np.zeros((6,1))
-                se3_delta[2:,:] = delta # [0,0,wz,x,y,z]
-                self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se3_exp(se3_delta)
-            elif self.map_type == "3d":
-                self.txs_world_tag[tag_idx] = self.txs_world_tag[tag_idx] @ se3_exp(delta)
-            else:
-                raise RuntimeError("Unsupported map type", self.map_type)
-
-        # recenter the map around tag0            
-        if self.tx_world_tag_dim == 3:
-            tx_world_tag0 = self.txs_world_tag[0]
-            tx_tag0_world = SE2_inv(tx_world_tag0)
-            for i, tx_world_tag in enumerate(self.txs_world_tag):
-                self.txs_world_tag[i] = tx_tag0_world @ self.txs_world_tag[i]
-                fix_SE2(self.txs_world_tag[i])
-            tx_tag0_world = SE2_to_SE3(tx_tag0_world) # promote to SE2->SE3
-            for i, tx_world_viewpoint in enumerate(self.txs_world_viewpoint):
-                self.txs_world_viewpoint[i] = tx_tag0_world @ tx_world_viewpoint
-                fix_SE3(self.txs_world_viewpoint[i])
-
-        elif self.tx_world_tag_dim == 4:
-            tx_world_tag0 = self.txs_world_tag[0]
-            tx_tag0_world = SE3_inv(tx_world_tag0)
-            for i, tx_world_tag in enumerate(self.txs_world_tag):
-                self.txs_world_tag[i] = tx_tag0_world @ self.txs_world_tag[i]
-                fix_SE3(self.txs_world_tag[i])
-            for i, tx_world_viewpoint in enumerate(self.txs_world_viewpoint):
-                self.txs_world_viewpoint[i] = tx_tag0_world @ tx_world_viewpoint
-                fix_SE3(self.txs_world_viewpoint[i])
-        else:
-            raise RuntimeError("Unexpected tag pose dimention", self.tx_world_tag_dim)
+            delta = self.project_delta(np.linalg.solve(tag_info.matrix, tag_info.vector))
 
         if not self.relinearize():
             # no improvement, restore the previous linearization point
             self.streak = 0
-            self.txs_world_viewpoint = txs_world_viewpoint_backup
-            self.txs_world_tag = txs_world_tag_backup
+            self.se3s_world_viewpoint = se3s_world_viewpoint_backup
+            self.se3s_world_tag = se3s_world_tag_backup
             self.relinearize()
             return False
 
