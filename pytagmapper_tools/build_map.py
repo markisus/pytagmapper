@@ -138,23 +138,23 @@ if __name__ == "__main__":
     data.save_viewpoints_json(
         output_dir,
         map_builder.viewpoint_ids,
-        map_builder.txs_world_viewpoint)
+        map_builder.txs_world_viewpoint())
 
     if args.mode == '3d':
         data.save_map3d_json(
             output_dir,
             map_builder.tag_side_lengths,
             map_builder.tag_ids,
-            map_builder.txs_world_tag)
+            map_builder.txs_world_tag())
     elif args.mode == '2.5d':
         data.save_map2p5d_json(
             output_dir,
             map_builder.tag_side_lengths,
             map_builder.tag_ids,
-            map_builder.txs_world_tag)
+            map_builder.txs_world_tag())
     else:
         data.save_map_json(
             output_dir,
             map_builder.tag_side_lengths,
             map_builder.tag_ids,
-            map_builder.txs_world_tag)    
+            map_builder.txs_world_tag())    

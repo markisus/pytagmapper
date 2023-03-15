@@ -41,21 +41,23 @@ def huber_error(k, residual):
 class MapBuilder:
     def __init__(self, camera_matrix, tag_side_lengths, map_type = "3d"):
         self.map_type = map_type
+        self.tag_dof = 6
+        self.tag_info_cls = InfoState6
 
-        if map_type == "3d":
-            self.tag_dof = 6 # wx wy wz x y z
-            self.tag_info_cls = InfoState6
-            self.tx_world_tag_dim = 4 # 4x4 pose matrix
-        elif map_type == "2.5d":
-            self.tag_dof = 4 # wz x y z
-            self.tag_info_cls = InfoState4
-            self.tx_world_tag_dim = 4 # 4x4 pose matrix
-        elif map_type == "2d":
-            self.tag_dof = 3 # wz x y 
-            self.tag_info_cls = InfoState3
-            self.tx_world_tag_dim = 3 # 3x3 pose matrix
-        else:
-            raise RuntimeError("Unsupported map type", map_type)
+        # if map_type == "3d":
+        #     self.tag_dof = 6 # wx wy wz x y z
+        #     self.tag_info_cls = InfoState6
+        #     self.tx_world_tag_dim = 4 # 4x4 pose matrix
+        # elif map_type == "2.5d":
+        #     self.tag_dof = 4 # wz x y z
+        #     self.tag_info_cls = InfoState4
+        #     self.tx_world_tag_dim = 4 # 4x4 pose matrix
+        # elif map_type == "2d":
+        #     self.tag_dof = 3 # wz x y 
+        #     self.tag_info_cls = InfoState3
+        #     self.tx_world_tag_dim = 3 # 3x3 pose matrix
+        # else:
+        #     raise RuntimeError("Unsupported map type", map_type)
         
         self.regularizer = 1e9
         self.streak = 0
@@ -122,10 +124,11 @@ class MapBuilder:
     #     return [ se3_exp(se3) for se3 in self.se3s_world_viewpoint ]
 
     def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None, init_tags = None):
-        # print("Called add_viewpoint, tags ", tags)
-        # print("Using init_tags ", init_tags)
-        # tags = {k: v for k, v in tags.items() if k == 3 }
-
+        if not self.tag_ids:
+            # initialize the first tag
+            first_tag_id = next(iter(tags.keys()))
+            self.init_tag(first_tag_id, np.zeros((6,1), dtype=float))
+            
         if init_tags is None:
             init_tags = {}
 
@@ -149,8 +152,6 @@ class MapBuilder:
             else:
                 # try to add this viewpoint into the scene
                 # by registering against overlapping tag ids
-
-                # print("Initializing viewpoint")
 
                 # get world coordinates of the overlapping tags
                 tags_world_coords = []
@@ -181,20 +182,7 @@ class MapBuilder:
             detection = np.array(detection).reshape((4,2))
             corners_mat = np.array(get_corners_mat(self.get_tag_side_length(tag_id))[:3,:].T)
             tx_camera_tag = solvePnPWrapper(corners_mat, detection, self.camera_matrix)
-            # print("tx_camera_tag estimated to be\n", tx_camera_tag)
-            tx_world_tag_3d = init_viewpoint @ tx_camera_tag
-
-            if self.map_type == '2d':
-                tx_world_tag = SE3_to_SE2(tx_world_tag_3d)
-            elif self.map_type == '2.5d':
-                tx_world_tag_2d = SE3_to_SE2(tx_world_tag_3d)
-                tx_world_tag = SE2_to_SE3(tx_world_tag_2d)
-                tx_world_tag[2,3] = tx_world_tag_3d[2,3] # fix z component
-            elif self.map_type == '3d':
-                tx_world_tag = tx_world_tag_3d
-            else:
-                raise RuntimeError("Unsupported map type", self.map_type)
-            
+            tx_world_tag = init_viewpoint @ tx_camera_tag
             init_tags[tag_id] = tx_world_tag
 
         se3_world_viewpoint = SE3_log(init_viewpoint)
@@ -205,20 +193,13 @@ class MapBuilder:
         viewpoint_detections_start = len(self.detections)
         for tag_id, tag_corners in tags.items():
             if tag_id not in self.tag_id_to_idx:
-                self.tag_id_to_idx[tag_id] = len(self.tag_ids)
-                self.tag_ids.append(tag_id)
                 if tag_id in init_tags:
-                    se3_world_tag = SE3_log(init_tags[tag_id])
+                    se3_world_tag = self.project_delta(SE3_log(init_tags[tag_id]))
                 else:
                     se3_world_tag = np.zeros((6,1), dtype=float)
-                self.se3s_world_tag.append(se3_world_tag)
-                self.tag_infos.append(info6_from_gaussian(se3_world_tag, np.eye(6, dtype=float)*1e6))
-                self.tag_detections.append([])
-                tag_side_length = self.get_tag_side_length(tag_id)
-                self.corners_mats.append(get_corners_mat(size=tag_side_length))
+                self.init_tag(tag_id, se3_world_tag)
 
             tag_idx = self.tag_id_to_idx[tag_id]
-
             dim_detection_factor_input = 6 + self.tag_dof
             self.detections.append((tag_idx, viewpoint_idx, np.reshape(tag_corners, (8,1))))
             self.detection_jacobians.append(np.zeros(shape=(8,dim_detection_factor_input)))
@@ -233,6 +214,15 @@ class MapBuilder:
 
         viewpoint_detections_end = len(self.detections)
         self.viewpoint_detections.append((viewpoint_detections_start, viewpoint_detections_end))
+
+    def init_tag(self, tag_id, se3_world_tag):
+        self.tag_id_to_idx[tag_id] = len(self.tag_ids)
+        self.tag_ids.append(tag_id)
+        self.se3s_world_tag.append(se3_world_tag)
+        self.tag_infos.append(info6_from_gaussian(se3_world_tag, np.eye(6, dtype=float)*1e6))
+        self.tag_detections.append([])
+        tag_side_length = self.get_tag_side_length(tag_id)
+        self.corners_mats.append(get_corners_mat(size=tag_side_length))
 
     def update_viewpoint(self, viewpoint_idx):
         # [ ]_____( )
@@ -254,6 +244,8 @@ class MapBuilder:
         if self.map_type == "2d":
             delta[5,0] = 0 # no z-component
             delta[:2,0] = 0 # only z-rotation
+            print("Projecting \n", delta_in.T, " to \n", delta.T)
+            pass
         elif self.map_type == "2.5d":
             delta[:2,0] = 0 # only z-rotation
         return delta
@@ -282,43 +274,17 @@ class MapBuilder:
         tx_world_tag = se3_exp(se3_world_tag)
         tx_world_viewpoint = se3_exp(se3_world_viewpoint)
 
-        # print("Relin detection idx ", det_idx)
-        # print("tag id ", self.tag_ids[tag_idx])
-        # print("tx_world_tag ", tx_world_tag)
-        # print("view id ", self.viewpoint_ids[viewpoint_idx])
-        # print("se3_world_viewpoint ", se3_world_viewpoint)
-        # print("tx_world_viewpoint\n ", tx_world_viewpoint)
-        # print("tx_camera_tag\n ",  SE3_inv(tx_world_viewpoint) @ tx_world_tag)
-
         assert se3_world_viewpoint.shape == (6,1)
 
         tx_world_tag = se3_exp(se3_world_tag)
         tx_world_viewpoint = se3_exp(se3_world_viewpoint)
         tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
         image_corners, dimage_corners_dcamera, dimage_corners_dtag = project_points(self.camparams, se3_world_viewpoint, se3_world_tag, self.corners_mats[tag_idx])
-        # dimage_corners_dtag_global = dimage_corners_dtag @ se3_left_jacobian(se3_world_tag);
-        # dimage_corners_dcamera_global = dimage_corners_dcamera @ se3_left_jacobian(se3_world_viewpoint);
-
         self.detection_jacobians[det_idx][:,:6] = dimage_corners_dcamera
         self.detection_jacobians[det_idx][:,6:] = dimage_corners_dtag
         self.detection_projections[det_idx] = image_corners
         residual = image_corners - tag_corners
         self.detection_residuals[det_idx] = residual
-
-        # print("Detection idx ", det_idx, " residual ", residual)
-
-        # test jacobians
-        # eps = 1e-1
-        # rng = np.random.default_rng(0)
-        # se3_cam_perturb = rng.random((6,1))*eps
-        # se3_tag_perturb = rng.random((6,1))*eps
-        # corners_perturb, _, _ = project_points(self.camparams, se3_world_viewpoint + se3_cam_perturb*eps, se3_world_tag + se3_tag_perturb*eps, self.corners_mats[tag_idx])
-        # print("image corners shape", image_corners)
-        # print("corners_perturb", corners_perturb.shape)
-        # corners_vel = (corners_perturb - image_corners)/eps
-        # corners_vel_alt = dimage_corners_dtag @ se3_tag_perturb + dimage_corners_dcamera @ se3_cam_perturb
-        # print("Corner vel\n", corners_vel)
-        # print("Corner vel alt\n", corners_vel_alt)
 
         # caculate huber loss
         huber_k = self.huber_k
@@ -360,6 +326,12 @@ class MapBuilder:
     def get_avg_detection_error(self):
         return self.get_total_detection_error()/len(self.detection_errors)
 
+    def txs_world_viewpoint(self):
+        return [ se3_exp(se3) for se3 in self.se3s_world_viewpoint ]
+
+    def txs_world_tag(self):
+        return [ se3_exp(se3) for se3 in self.se3s_world_tag ]
+
     def update(self):
         # print("In update")
         # copy linearization point
@@ -368,7 +340,11 @@ class MapBuilder:
 
         for viewpoint_idx, viewpoint_info in enumerate(self.viewpoint_infos):
             assert viewpoint_info.vector.shape == (6,1)
-            delta = np.linalg.solve(viewpoint_info.matrix, viewpoint_info.vector)
+
+            prior_info = info6_from_gaussian(self.se3s_world_viewpoint[viewpoint_idx], 
+                                             np.eye(6, dtype=float)*self.regularizer)
+
+            delta = np.linalg.solve(viewpoint_info.matrix + prior_info.matrix, viewpoint_info.vector + prior_info.vector)
             assert delta.shape == (6,1)
             # print("Viewpoint changed...\n",
             #       self.se3s_world_viewpoint[viewpoint_idx],
@@ -378,7 +354,11 @@ class MapBuilder:
             self.se3s_world_viewpoint[viewpoint_idx] = delta
 
         for tag_idx, tag_info in enumerate(self.tag_infos):
-            delta = self.project_delta(np.linalg.solve(tag_info.matrix, tag_info.vector))
+            prior_info = info6_from_gaussian(self.se3s_world_tag[tag_idx], 
+                                             np.eye(6, dtype=float)*self.regularizer)
+
+
+            delta = self.project_delta(np.linalg.solve(tag_info.matrix + prior_info.matrix, tag_info.vector + prior_info.vector))
             assert delta.shape == (6,1)
             # print("Tag changed...\n",
             #       self.se3s_world_tag[tag_idx],
