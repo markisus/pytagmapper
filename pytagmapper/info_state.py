@@ -45,6 +45,9 @@ class InfoState6:
         self.vector.fill(0)
         self.matrix.fill(0)
 
+def info6_from_gaussian(mean, cov):
+    return InfoState6(vector = np.linalg.solve(cov, mean), matrix=np.linalg.inv(cov))
+
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
 

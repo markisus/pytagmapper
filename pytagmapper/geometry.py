@@ -29,6 +29,8 @@
 import numpy as np
 import math
 
+kTol = 1e-8
+
 def SE2_to_SE3(SE2):
     SE3 = np.eye(4)
     SE3[:2,:2] = SE2[:2,:2]
@@ -106,13 +108,14 @@ def se3_to_matrix(se3):
     return result
 
 def se3_exp(se3):
+    assert se3.shape == (6,1)
     # See page 10 https://ethaneade.com/lie.pdf
     # we reverse u and omega in the ordering of se3
     result = np.eye(4)
     omega_vec = se3[:3,:]
     theta_squared = np.dot(omega_vec.T, omega_vec)
     omega = so3_to_matrix(omega_vec)
-    if (theta_squared < 1e-8): 
+    if (theta_squared < kTol): 
         # second order taylor expansion
         A = -theta_squared/6.0 + 1.0
         B = -theta_squared/24.0 + 0.5
@@ -137,7 +140,7 @@ def se2_exp(se2):
     x = se2[1,0]
     y = se2[2,0]
 
-    if (abs(theta) < 1e-6):
+    if (abs(theta) < kTol):
         return np.array([
             [1, 0, x],
             [0, 1, y],
@@ -184,7 +187,7 @@ def SE3_inv(SE3):
     return result
 
 def almost_equals(a, b):
-    return abs(a - b) < 1e-9
+    return abs(a - b) < kTol
 
 def SO3_log_decomposed(SO3):
     """
@@ -203,23 +206,28 @@ def SO3_log_decomposed(SO3):
 
     # Edge case: rotation of k*PI
     if almost_equals(trace, -1):
+        # print("Edge case")
         theta = np.pi
         r33 = SO3[2,2]
         r22 = SO3[1,1]
         r11 = SO3[0,0]
 
         if not almost_equals(1.0 + r33, 0):
+            # print("Case 1")
             omega_hat = np.array([[SO3[0,2], SO3[1,2], 1+SO3[2,2]]]).T
             omega_hat /= (2 * (1 + r33))**0.5
             return omega_hat, theta
 
         if not almost_equals(1.0 + r22, 0):
+            # print("Case 2")
             omega_hat = np.array([[SO3[0,1], 1+SO3[1,1], SO3[2,1]]]).T
             omega_hat /= (2 * (1 + r22))**0.5
             return omega_hat, theta
 
+        # print("Case 3")
+        assert almost_equals(1.0 + r33, 0)
         omega_hat = np.array([[1+SO3[0,0], SO3[1,0], SO3[2,0]]]).T
-        omega_hat /= (2 * (1 + r11))
+        omega_hat /= (2 * (1 + r11))**0.5
         return omega_hat, theta
 
     # normal case
@@ -245,7 +253,7 @@ def barfoot_Q(se3):
     theta2_rho = (theta@theta_rho)
 
     angle = np.linalg.norm(se3[:3,:])
-    if (angle < 1e-6):
+    if (angle < kTol):
         angle2 = angle*angle
         angle4 = angle2*angle2
         c1 = 1.0/6 - angle2/120 + angle4/5040
@@ -276,7 +284,7 @@ def SO3_left_jacobian(so3):
     theta4 = theta2*theta2
 
     theta_mat = so3_to_matrix(so3)    
-    if (theta < 1e-6):
+    if (theta < kTol):
         coeff1 = 0.5 - theta2/24 + theta4/720
         coeff2 = 1.0/6 - theta2/120 + theta4/5040
     else:
@@ -299,6 +307,7 @@ def se3_left_jacobian(se3):
     return result
 
 def x_cotx(x):
+    return x / np.tan(x)
     c2 = -1.0 / 3
     c4 = -1.0 / 45
     c6 = -2.0 / 945
@@ -311,15 +320,21 @@ def x_cotx(x):
     x10 = x8 * x2
     return 1.0 + c2 * x2 + c4 * x4 + c6 * x6 + c8 * x8 + c10 * x10
 
+def se3_to_vector(se3_mat):
+    se3 = np.empty((6,1), dtype=float)
+    se3[:3,:] = so3_to_vector(se3_mat[:3,:3])
+    se3[3:,:] = se3_mat[:3,3:]
+    return se3
+
 def SE3_log(SE3):
     omega_hat, theta = SO3_log_decomposed(SE3[:3,:3])
-    omega_vec = omega_hat * theta
-    omega = so3_to_matrix(omega_vec)
+    omega = so3_to_matrix(omega_hat)
+
     p = SE3[:3,3:]
     omega_p = omega @ p
     v_theta = p - 0.5*theta*omega_p + (1.0 - x_cotx(theta/2)) * omega @ omega_p
     result = np.empty((6,1), float)
-    result[:3,:] = omega_vec
+    result[:3,:] = omega_hat * theta
     result[3:,:] = v_theta
     return result
     
@@ -360,24 +375,24 @@ def check_SE2(SE2):
     
     Rxy = R[:2,0]
     normRxy = np.linalg.norm(Rxy)
-    if abs(normRxy - 1) > 1e-6:
+    if abs(normRxy - 1) > kTol:
         print("Bad SE2\n", SE2)
         print("Rxy", Rxy.T)
         print("normRxy ", normRxy)
         raise RuntimeError("Bad SE2", SE2)
     
-    if np.max(np.abs(R @ R.T - np.eye(2))) > 1e-4:
+    if np.max(np.abs(R @ R.T - np.eye(2))) > kTol:
         print("Bad SE2\n", SE2)
         print("R@R.T\n", R@R.T)
         print("normRxy\n", normRxy)
         raise RuntimeError("Bad SE2", SE2)
 
-    if abs(SE2[2,2] - 1) > 1e-6:
+    if abs(SE2[2,2] - 1) > kTol:
         print("Bad SE2\n", SE2)
         print("Lower corner not 1")
         raise RuntimeError("Bad SE2", SE2)
 
-    if np.max(np.abs(SE2[2,:2])) > 1e-6:
+    if np.max(np.abs(SE2[2,:2])) > kTol:
         print("Bad SE2\n", SE2)
         print("Lower zeros")
         raise RuntimeError("Bad SE2", SE2)
@@ -462,26 +477,26 @@ if __name__ == "__main__":
     SO3_result = scipy.linalg.expm(so3_to_matrix(so3_result))
     print(SO3_result)
 
-    se3 = rng.random((6,1))
-    SE3 = se3_exp(se3)
-    se3_result = SE3_log(SE3)
-    print("se3, se3_result", se3.T, se3_result.T)
+    # se3 = rng.random((6,1))
+    # SE3 = se3_exp(se3)
+    # se3_result = SE3_log(SE3)
+    # print("se3, se3_result", se3.T, se3_result.T)
 
-    logM = se3
-    M = SE3
-    # exp(Jl_logM [Δ]) * M ~= exp(logM + [Δ])
-    # exp(Jl_logM [Δ]) ~= exp(logM + [Δ]) M_inv
-    # Jl_logM [Δ] ~= log(exp(logM + [Δ]) M_inv)
-    # Jl_logM [Δ] ~= lim_t->0 [log(exp(logM + [Δ t]) M_inv) / t]
+    # logM = se3
+    # M = SE3
+    # # exp(Jl_logM [Δ]) * M ~= exp(logM + [Δ])
+    # # exp(Jl_logM [Δ]) ~= exp(logM + [Δ]) M_inv
+    # # Jl_logM [Δ] ~= log(exp(logM + [Δ]) M_inv)
+    # # Jl_logM [Δ] ~= lim_t->0 [log(exp(logM + [Δ t]) M_inv) / t]
 
-    for i in range(6):
-        print("i == ", i)
-        perturb = np.zeros((6,1), dtype=float)
-        perturb[i,0] = 1
-        eps = 1e-3
-        expected = SE3_log(se3_exp(logM + perturb*eps) @ SE3_inv(M))/eps
-        print("Expected ", expected.T)
-        print("Actual ", (se3_left_jacobian(logM) @ perturb).T)
+    # for i in range(6):
+    #     print("i == ", i)
+    #     perturb = np.zeros((6,1), dtype=float)
+    #     perturb[i,0] = 1
+    #     eps = 1e-3
+    #     expected = SE3_log(se3_exp(logM + perturb*eps) @ SE3_inv(M))/eps
+    #     print("Expected ", expected.T)
+    #     print("Actual ", (se3_left_jacobian(logM) @ perturb).T)
 
 
     # dxy_dobject = dxy_campoint * dcampoint_dobject
@@ -491,6 +506,33 @@ if __name__ == "__main__":
     #     = dxy_dobject * log(tx_world_object2 * tx_world_object1.inv)
     #     = dxy_dobject * log(exp(se3_world_object1 + delta) * tx_world_object1.inv)
     #     = dxy_dobject * jl(se3_world_object1) * delta
+
+    # round trip
+    # SE3 = np.array([[ 0.99283688,  0.03183017,  0.11515975, -0.01986499],
+    #     [-0.05648195,  0.97439577,  0.21762966, -0.0552138 ],
+    #     [-0.10528398, -0.2225752 ,  0.96921389,  0.07555235],
+    #     [ 0.0        ,  0.0        ,  0.0        ,  1.0        ]])
+
+    # se3 = SE3_log(SE3)
+    # se3_np = se3_to_vector(scipy.linalg.logm(SE3))
+
+    # print("se3 ", se3.T)
+    # print("se3 mat np ", se3_np.T)
+
+    # SE3_round_trip = se3_exp(se3)
+
+    # print("SE3\n", SE3)
+    # print("SE3_round_trip\n", SE3_round_trip)
+
+    SE3 = np.array([[ 1.0,   0.0,   0.0,   0.0 ],
+                    [ 0.0,  -1.0,   0.0,   0.0 ],
+                    [ 0.0,   0.0,  -1.0,   0.3],
+                    [ 0.0,   0.0,   0.0,   1.0 ]])
+    se3 = SE3_log(SE3)
+    SE3_round_trip = se3_exp(se3)
+
+    print("SE3\n", SE3)
+    print("SE3_round_trip\n", SE3_round_trip)
 
     
     
