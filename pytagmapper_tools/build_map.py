@@ -2,7 +2,6 @@ from hack_sys_path import *
 import argparse
 import random
 from pytagmapper import data
-from pytagmapper import project
 from pytagmapper.geometry import *
 from pytagmapper.map_builder import MapBuilder
 import sys
