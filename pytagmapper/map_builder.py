@@ -4,6 +4,7 @@ from pytagmapper.geometry import *
 from pytagmapper.info_state import *
 from pytagmapper.project import project_points, get_corners_mat
 from pytagmapper.heuristics import *
+from pytagmapper.min_heap import MinHeap
 import cv2
 
 def solvePnPWrapper(obj_points, img_points, camera_matrix):
@@ -41,24 +42,7 @@ def huber_error(k, residual):
 class MapBuilder:
     def __init__(self, camera_matrix, tag_side_lengths, map_type = "3d"):
         self.map_type = map_type
-        self.tag_dof = 6
-        self.tag_info_cls = InfoState6
 
-        # if map_type == "3d":
-        #     self.tag_dof = 6 # wx wy wz x y z
-        #     self.tag_info_cls = InfoState6
-        #     self.tx_world_tag_dim = 4 # 4x4 pose matrix
-        # elif map_type == "2.5d":
-        #     self.tag_dof = 4 # wz x y z
-        #     self.tag_info_cls = InfoState4
-        #     self.tx_world_tag_dim = 4 # 4x4 pose matrix
-        # elif map_type == "2d":
-        #     self.tag_dof = 3 # wz x y 
-        #     self.tag_info_cls = InfoState3
-        #     self.tx_world_tag_dim = 3 # 3x3 pose matrix
-        # else:
-        #     raise RuntimeError("Unsupported map type", map_type)
-        
         self.regularizer = 1e9
         self.streak = 0
 
@@ -77,6 +61,9 @@ class MapBuilder:
         self.se3s_world_tag = []
         self.se3s_world_viewpoint = []
 
+        self.txs_world_tag = []
+        self.txs_world_viewpoint = []
+
         # detection factor data
         self.detection_jacobians = []
         self.detection_JtJs = []
@@ -91,22 +78,26 @@ class MapBuilder:
 
         # gbp state
         self.viewpoint_infos = []
+        self.viewpoint_changes = []
         self.tag_infos = []
+        self.tag_changes = []
 
         # list of (tag_idx, viewpoint_idx, tag_corners)
         self.detections = []
 
         self.viewpoint_id_to_idx = {}
         self.viewpoint_ids = []
-        self.viewpoint_detections = [] # list of (start, finish) tuple
+        self.viewpoint_detections = [] # list of list
         self.tag_detections = [] # list of list
         self.tag_id_to_idx = {}
         self.tag_ids = []
 
+        self.variable_priorities = MinHeap()
+
         # 1m above the surface, facing down onto the surface
         # height above the surface, facing down onto the surface
         h = self.default_tag_side_length * 10
-        self.init_viewpoint = np.array([
+        self.initial_viewpoint = np.array([
             [1,  0,  0, 0],
             [0, -1,  0, 0],
             [0,  0, -1, h],
@@ -123,32 +114,77 @@ class MapBuilder:
     # def get_txs_world_viewpoint(self):
     #     return [ se3_exp(se3) for se3 in self.se3s_world_viewpoint ]
 
-    def add_viewpoint(self, viewpoint_id, tags, init_viewpoint = None, init_tags = None):
+    def init_viewpoint(self, viewpoint_id, tx_world_viewpoint):
+        assert viewpoint_id not in self.viewpoint_id_to_idx
+        
+        viewpoint_idx = len(self.viewpoint_ids)
+        self.viewpoint_id_to_idx[viewpoint_id] = viewpoint_idx
+        self.viewpoint_ids.append(viewpoint_id)
+
+        se3_world_viewpoint = SE3_log(tx_world_viewpoint)
+
+        self.se3s_world_viewpoint.append(se3_world_viewpoint)
+        self.txs_world_viewpoint.append(tx_world_viewpoint)
+        assert self.se3s_world_viewpoint[-1].shape == (6,1)
+
+        self.viewpoint_infos.append(InfoState6())
+        self.viewpoint_detections.append([])
+        self.variable_priorities.upsert(('v', viewpoint_idx), 0)
+
+        return viewpoint_idx
+
+    def init_tag(self, tag_id, tx_world_tag):
+        se3_world_tag = SE3_log(tx_world_tag)
+        tag_idx = len(self.tag_ids)
+        self.tag_id_to_idx[tag_id] = tag_idx
+        self.tag_ids.append(tag_id)
+        self.se3s_world_tag.append(se3_world_tag)
+        self.txs_world_tag.append(tx_world_tag)
+        self.tag_infos.append(InfoState6())
+        self.variable_priorities.upsert(('t', tag_idx), 0)
+        self.tag_detections.append([])
+        tag_side_length = self.get_tag_side_length(tag_id)
+        self.corners_mats.append(get_corners_mat(size=tag_side_length))
+
+    def init_detection(self, viewpoint_id, tag_id, tag_corners):
+        tag_idx = self.tag_id_to_idx[tag_id]
+        viewpoint_idx = self.viewpoint_id_to_idx[viewpoint_id]
+        dim_detection_factor_input = 12
+        self.detections.append((tag_idx, viewpoint_idx, np.reshape(tag_corners, (8,1))))
+        self.detection_jacobians.append(np.zeros(shape=(8,dim_detection_factor_input)))
+        self.detection_projections.append(np.zeros(shape=(8,1)))
+        self.detection_residuals.append(np.zeros(shape=(8,1)))
+        self.detection_JtJs.append(np.zeros(shape=(dim_detection_factor_input, dim_detection_factor_input)))
+        self.detection_rtJs.append(np.zeros(shape=(1,dim_detection_factor_input)))
+        self.detection_to_viewpoint_msgs.append(InfoState6())
+        self.detection_to_tag_msgs.append(InfoState6())
+        self.detection_errors.append(float('inf'))
+        self.tag_detections[tag_idx].append(len(self.detections)-1)
+        self.viewpoint_detections[viewpoint_idx].append(len(self.detections)-1)
+
+    def add_viewpoint(self, viewpoint_id, tags, initial_viewpoint = None, init_tags = None):
         if not self.tag_ids:
             # initialize the first tag
             first_tag_id = next(iter(tags.keys()))
-            self.init_tag(first_tag_id, np.zeros((6,1), dtype=float))
+            self.init_tag(first_tag_id, np.eye(4, dtype=float))
             
         if init_tags is None:
             init_tags = {}
 
-        self.viewpoint_id_to_idx[viewpoint_id] = len(self.viewpoint_ids)
-        self.viewpoint_ids.append(viewpoint_id)
-
         overlapping_tag_ids = list(
             self.tag_id_to_idx.keys() & tags.keys())
 
-        if init_viewpoint is None:
+        if initial_viewpoint is None:
             if not overlapping_tag_ids:
                 # there is no overlap with the existing map...
                 # should we even allow this (?)
                 if self.se3s_world_viewpoint:
                     # use the last viewpoint
                     print("No overlap with existing map!")
-                    init_viewpoint = se3_exp(self.se3s_world_viewpoint[-1])
+                    initial_viewpoint = se3_exp(self.se3s_world_viewpoint[-1])
                 else:
                     # use the default init viewpoint
-                    init_viewpoint = self.init_viewpoint
+                    initial_viewpoint = self.initial_viewpoint
             else:
                 # try to add this viewpoint into the scene
                 # by registering against overlapping tag ids
@@ -172,57 +208,30 @@ class MapBuilder:
                 tags_world_coords = np.vstack(tags_world_coords)
                 tags_img_coords = np.vstack(tags_img_coords)
                 tx_camera_world = solvePnPWrapper(tags_world_coords, tags_img_coords, self.camera_matrix)
-                init_viewpoint = SE3_inv(tx_camera_world)
+                initial_viewpoint = SE3_inv(tx_camera_world)
 
         # initialize the tag positions
         new_tag_ids = list((tags.keys() - self.tag_id_to_idx.keys()) - init_tags.keys())
         for tag_id in new_tag_ids:
-            # print("initializing tag", tag_id)
             detection = tags[tag_id]
             detection = np.array(detection).reshape((4,2))
             corners_mat = np.array(get_corners_mat(self.get_tag_side_length(tag_id))[:3,:].T)
             tx_camera_tag = solvePnPWrapper(corners_mat, detection, self.camera_matrix)
-            tx_world_tag = init_viewpoint @ tx_camera_tag
+            tx_world_tag = initial_viewpoint @ tx_camera_tag
             init_tags[tag_id] = tx_world_tag
 
-        se3_world_viewpoint = SE3_log(init_viewpoint)
-        self.se3s_world_viewpoint.append(se3_world_viewpoint)
-        assert self.se3s_world_viewpoint[-1].shape == (6,1)
-        self.viewpoint_infos.append(info6_from_gaussian(se3_world_viewpoint, np.eye(6, dtype=float)*1e6))
-        viewpoint_idx = self.viewpoint_id_to_idx[viewpoint_id]
-        viewpoint_detections_start = len(self.detections)
+        viewpoint_idx = self.init_viewpoint(viewpoint_id, initial_viewpoint)
+
         for tag_id, tag_corners in tags.items():
             if tag_id not in self.tag_id_to_idx:
                 if tag_id in init_tags:
-                    se3_world_tag = self.project_delta(SE3_log(init_tags[tag_id]))
+                    tx_world_tag = init_tags[tag_id]
                 else:
-                    se3_world_tag = np.zeros((6,1), dtype=float)
-                self.init_tag(tag_id, se3_world_tag)
+                    tx_world_tag = np.eye(4, dtype=float)
+                self.init_tag(tag_id, tx_world_tag)
 
-            tag_idx = self.tag_id_to_idx[tag_id]
-            dim_detection_factor_input = 6 + self.tag_dof
-            self.detections.append((tag_idx, viewpoint_idx, np.reshape(tag_corners, (8,1))))
-            self.detection_jacobians.append(np.zeros(shape=(8,dim_detection_factor_input)))
-            self.detection_projections.append(np.zeros(shape=(8,1)))
-            self.detection_residuals.append(np.zeros(shape=(8,1)))
-            self.detection_JtJs.append(np.zeros(shape=(dim_detection_factor_input, dim_detection_factor_input)))
-            self.detection_rtJs.append(np.zeros(shape=(1,dim_detection_factor_input)))
-            self.detection_to_viewpoint_msgs.append(InfoState6())
-            self.detection_to_tag_msgs.append(self.tag_info_cls())
-            self.detection_errors.append(float('inf'))
-            self.tag_detections[tag_idx].append(len(self.detections)-1)
+            self.init_detection(viewpoint_id, tag_id, tag_corners)
 
-        viewpoint_detections_end = len(self.detections)
-        self.viewpoint_detections.append((viewpoint_detections_start, viewpoint_detections_end))
-
-    def init_tag(self, tag_id, se3_world_tag):
-        self.tag_id_to_idx[tag_id] = len(self.tag_ids)
-        self.tag_ids.append(tag_id)
-        self.se3s_world_tag.append(se3_world_tag)
-        self.tag_infos.append(info6_from_gaussian(se3_world_tag, np.eye(6, dtype=float)*1e6))
-        self.tag_detections.append([])
-        tag_side_length = self.get_tag_side_length(tag_id)
-        self.corners_mats.append(get_corners_mat(size=tag_side_length))
 
     def update_viewpoint(self, viewpoint_idx):
         # [ ]_____( )
@@ -230,40 +239,56 @@ class MapBuilder:
         # [ ]_____/
         # [ ]_____/
 
-        viewpoint_info = self.viewpoint_infos[viewpoint_idx]        
-        delta = np.linalg.solve(viewpoint_info.matrix, viewpoint_info.vector)
-        assert delta.shape == (6,1)
-        self.se3s_world_viewpoint[viewpoint_idx] = delta
+        viewpoint_info = self.viewpoint_infos[viewpoint_idx]
+        prior_info = info6_from_gaussian(self.se3s_world_viewpoint[viewpoint_idx], 
+                                         np.eye(6, dtype=float)*self.regularizer)
 
-        # send updates from this viewpoint to all detections
-        for det_idx in range(*self.viewpoint_detections[viewpoint_idx]):
-            self.send_detection_to_tag_msg(det_idx)
+        new_info = prior_info + viewpoint_info
+        new_se3 = np.linalg.solve(new_info.matrix, new_info.vector)
 
-    def project_delta(self, delta_in):
-        delta = delta_in.copy()                                               
-        if self.map_type == "2d":
-            delta[5,0] = 0 # no z-component
-            delta[:2,0] = 0 # only z-rotation
-            print("Projecting \n", delta_in.T, " to \n", delta.T)
-            pass
-        elif self.map_type == "2.5d":
-            delta[:2,0] = 0 # only z-rotation
-        return delta
+        change = np.linalg.norm(new_se3 - self.se3s_world_viewpoint[viewpoint_idx])
+        self.variable_priorities.upsert(('v', viewpoint_idx), -change)
+
+        assert new_se3.shape == (6,1)
+        self.se3s_world_viewpoint[viewpoint_idx] = new_se3
+        self.txs_world_viewpoint[viewpoint_idx] = se3_exp(new_se3)
+
+    def get_tag_prior_info(self, tag_idx):
+        prior_info = info6_from_gaussian(self.se3s_world_tag[tag_idx],
+                                         np.eye(6, dtype=float)*self.regularizer)
+
+        # add in a "factor" that adds cost when going away from z=0, xy rotation=0
+        # || F tag ||^2 = || (1, 1, 0, 0, 0, 1) tag ||^2
+        # tag F.t F tag
+
+        dim_strength = 1e9
+        
+        if self.map_type == '2d':
+            prior_info.matrix[:2,:2] += dim_strength
+            prior_info.matrix[5,5] += dim_strength
+
+        if self.map_type == '2.5d':
+            prior_info.matrix[:2,:2] += dim_strength
+
+        return prior_info
+
 
     def update_tag(self, tag_idx):
         # [ ]_____( )
         # [ ]_____/
         # [ ]_____/
         # [ ]_____/
-
+        prior_info = self.get_tag_prior_info(tag_idx)
         tag_info = self.tag_infos[tag_idx]
+        new_info = prior_info + tag_info
+        new_se3 = np.linalg.solve(new_info.matrix, new_info.vector)
+        assert new_se3.shape == (6,1)
 
-        delta = self.project_delta(np.linalg.solve(tag_info.matrix, tag_info.vector))
-        se3s_world_tag[tag_idx] = delta
+        change = np.linalg.norm(new_se3 - self.se3s_world_tag[tag_idx])
+        self.variable_priorities.upsert(('t', tag_idx), -change)
         
-        # send updates from this tag to all detections
-        for det_idx in self.tag_detections[tag_idx]:
-            self.send_detection_to_viewpoint_msg(det_idx)
+        self.se3s_world_tag[tag_idx] = new_se3
+        self.txs_world_tag[tag_idx] = se3_exp(new_se3)
 
     def relinearize_detection(self, det_idx):
         detection = self.detections[det_idx]
@@ -271,20 +296,46 @@ class MapBuilder:
         se3_world_tag = self.se3s_world_tag[tag_idx]
         se3_world_viewpoint = self.se3s_world_viewpoint[viewpoint_idx]
 
-        tx_world_tag = se3_exp(se3_world_tag)
-        tx_world_viewpoint = se3_exp(se3_world_viewpoint)
+        # can the view see the tag?
+        tx_world_tag = self.txs_world_tag[tag_idx]
+        tx_world_viewpoint = self.txs_world_viewpoint[viewpoint_idx]
+        tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
+
+        tag_dir = tx_viewpoint_tag[:3,2].copy()
+        to_tag = tx_viewpoint_tag[:3,3].copy()
+        to_tag /= np.linalg.norm(to_tag)
+        tag_dp = np.dot(tag_dir, to_tag)
+        if tag_dp > 0:
+            # camera is looking at the back of tag
+            # express a factor saying that the
+            self.detection_jacobians[det_idx].fill(0)
+            self.detection_projections[det_idx].fill(0)
+            self.detection_residuals[det_idx].fill(0)
+            self.detection_JtJs[det_idx].fill(0)
+            self.detection_rtJs[det_idx].fill(0)
+            self.detection_errors[det_idx] = 1000
+            return
 
         assert se3_world_viewpoint.shape == (6,1)
 
-        tx_world_tag = se3_exp(se3_world_tag)
-        tx_world_viewpoint = se3_exp(se3_world_viewpoint)
-        tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
         image_corners, dimage_corners_dcamera, dimage_corners_dtag = project_points(self.camparams, se3_world_viewpoint, se3_world_tag, self.corners_mats[tag_idx])
         self.detection_jacobians[det_idx][:,:6] = dimage_corners_dcamera
         self.detection_jacobians[det_idx][:,6:] = dimage_corners_dtag
         self.detection_projections[det_idx] = image_corners
         residual = image_corners - tag_corners
         self.detection_residuals[det_idx] = residual
+
+        # Numerical Derivative check
+        # rng = np.random.default_rng(0)
+        # direction_1 = rng.random((6,1))
+        # direction_2 = rng.random((6,1))
+        # epsilon = 1e-4
+        # image_corners_d, _, _ = project_points(self.camparams, se3_world_viewpoint + epsilon*direction_1, se3_world_tag + epsilon*direction_2,
+        #                                        self.corners_mats[tag_idx])
+        # image_corners_deriv_d = (image_corners_d - image_corners)/epsilon
+        # image_corners_deriv = dimage_corners_dcamera @ direction_1 + dimage_corners_dtag @ direction_2
+        # print("Image corners deriv", image_corners_deriv)
+        # print("Image corners deriv_d", image_corners_deriv_d)
 
         # caculate huber loss
         huber_k = self.huber_k
@@ -316,7 +367,7 @@ class MapBuilder:
             self.regularizer *= 25.0
 
         self.regularizer = max(self.regularizer, 1e-3)
-        self.regularizer = min(self.regularizer, 1e6)
+        self.regularizer = min(self.regularizer, 1e1)
 
         return curr_error < prev_error
 
@@ -326,54 +377,83 @@ class MapBuilder:
     def get_avg_detection_error(self):
         return self.get_total_detection_error()/len(self.detection_errors)
 
-    def txs_world_viewpoint(self):
-        return [ se3_exp(se3) for se3 in self.se3s_world_viewpoint ]
+    def reset_tag(self, tag_id, tx_world_tag):
+        tag_idx = self.tag_id_to_idx[tag_id]
+        self.se3s_world_tag[tag_idx] = SE3_log(tx_world_tag)
+        self.txs_world_tag[tag_idx] = tx_world_tag
 
-    def txs_world_tag(self):
-        return [ se3_exp(se3) for se3 in self.se3s_world_tag ]
+        for detection_idx in self.tag_detections[tag_idx]:
+            # reset the message to this tag
+            self.detection_to_tag_msgs[detection_idx] = InfoState6()
+            self.relinearize_detection(detection_idx)
+
+        self.variable_priorities.upsert(tag_idx, 0)
+        
+        # update the tag info ?
+        # clear out all the messages to this tag ?
+
+    def prioritized_update(self):
+        if not self.detections:
+            return
+
+        detections_needing_relin = set()
+
+        (var_type, var_idx), priority = self.variable_priorities.pop()
+        if var_type == 't':
+            viewpoints_messaged = set()
+            for detection_idx in self.tag_detections[var_idx]:
+                tag_idx, viewpoint_idx, _ = self.detections[detection_idx]
+                self.send_detection_to_viewpoint_msg(detection_idx)
+                viewpoints_messaged.add(viewpoint_idx)
+                detections_needing_relin.add(detection_idx)
+
+            for viewpoint_idx in viewpoints_messaged:
+                self.update_viewpoint(viewpoint_idx)
+        else:
+            tags_messaged = set()
+            for detection_idx in self.viewpoint_detections[var_idx]:
+                tag_idx, viewpoint_idx, _ = self.detections[detection_idx]                                        
+                self.send_detection_to_tag_msg(detection_idx)
+                tags_messaged.add(tag_idx)
+                detections_needing_relin.add(detection_idx)
+
+            for tag_idx in tags_messaged:
+                self.update_tag(tag_idx)
+
+        for det_idx in detections_needing_relin:
+            self.relinearize_detection(det_idx)
 
     def update(self):
-        # print("In update")
         # copy linearization point
-        se3s_world_viewpoint_backup = [tx.copy() for tx in self.se3s_world_viewpoint]
-        se3s_world_tag_backup = [tx.copy() for tx in self.se3s_world_tag]
+        # se3s_world_viewpoint_backup = [tx.copy() for tx in self.se3s_world_viewpoint]
+        # se3s_world_tag_backup = [tx.copy() for tx in self.se3s_world_tag]
+        # txs_world_viewpoint_backup = [tx.copy() for tx in self.txs_world_viewpoint]
+        # txs_world_tag_backup = [tx.copy() for tx in self.txs_world_tag]
 
-        for viewpoint_idx, viewpoint_info in enumerate(self.viewpoint_infos):
-            assert viewpoint_info.vector.shape == (6,1)
+        for viewpoint_idx in range(len(self.viewpoint_infos)):
+            self.update_viewpoint(viewpoint_idx)
 
-            prior_info = info6_from_gaussian(self.se3s_world_viewpoint[viewpoint_idx], 
-                                             np.eye(6, dtype=float)*self.regularizer)
+        for tag_idx in range(len(self.tag_infos)):
+            self.update_tag(tag_idx)
+            # prior_info = info6_from_gaussian(self.se3s_world_tag[tag_idx], 
+            #                                  np.eye(6, dtype=float)*self.regularizer)
 
-            delta = np.linalg.solve(viewpoint_info.matrix + prior_info.matrix, viewpoint_info.vector + prior_info.vector)
-            assert delta.shape == (6,1)
-            # print("Viewpoint changed...\n",
-            #       self.se3s_world_viewpoint[viewpoint_idx],
-            #       "to\n",
-            #       delta)
-
-            self.se3s_world_viewpoint[viewpoint_idx] = delta
-
-        for tag_idx, tag_info in enumerate(self.tag_infos):
-            prior_info = info6_from_gaussian(self.se3s_world_tag[tag_idx], 
-                                             np.eye(6, dtype=float)*self.regularizer)
-
-
-            delta = self.project_delta(np.linalg.solve(tag_info.matrix + prior_info.matrix, tag_info.vector + prior_info.vector))
-            assert delta.shape == (6,1)
-            # print("Tag changed...\n",
-            #       self.se3s_world_tag[tag_idx],
-            #       "to\n",
-            #       delta)
-
-            self.se3s_world_tag[tag_idx] = delta
+            # new_info = prior_info + tag_info
+            # new_se3 = np.linalg.solve(new_info.matrix, new_info.vector)
+            # assert new_se3.shape == (6,1)
+            # self.se3s_world_tag[tag_idx] = new_se3
+            # self.txs_world_tag[tag_idx] = se3_exp(new_se3)
 
         if not self.relinearize():
-            # no improvement, restore the previous linearization point
-            self.streak = 0
-            self.se3s_world_viewpoint = se3s_world_viewpoint_backup
-            self.se3s_world_tag = se3s_world_tag_backup
-            self.relinearize()
-            return False
+            pass
+            # # no improvement, restore the previous linearization point
+            # self.streak = 0
+            # self.se3s_world_viewpoint = se3s_world_viewpoint_backup
+            # self.se3s_world_tag = se3s_world_tag_backup
+            # self.txs_world_tag = txs_world_tag_backup
+            # self.txs_world_viewpoint = txs_world_viewpoint_backup
+            # self.relinearize()
+            # return False
 
         # print("improvement. regularizer is now", self.regularizer)
         self.streak += 1
@@ -397,18 +477,15 @@ class MapBuilder:
         #       ...  __[ detectionB ]________\
         #            __[ detectionC ]________\
         #                                    \
-        # ( view )_____[ detection  ]______( tag )
+        # ( view )_____[ detection  ]______( tag )____[tag prior]
         #    \_________[ detectionE ]__
         #    \_________[ detectionF ]__  ...
         #    \_________[ detectionG ]__
 
         # get the message from the tag to the viewpoint
         # the sum of all the messages to the except for the one sent by this view
-        tag_info = self.tag_infos[tag_idx] - self.detection_to_tag_msgs[detection_idx]
-
-        # print("tag to viewpoint msg")
-        # print(tag_info.vector.T)
-        # print(tag_info.matrix)
+        tag_prior = info6_from_gaussian(self.se3s_world_tag[tag_idx], 1.0/self.regularizer * np.eye(6, dtype=float))
+        tag_info = self.tag_infos[tag_idx] - self.detection_to_tag_msgs[detection_idx] + tag_prior
 
         # marginalize out the tag
         # and send into the view
@@ -457,13 +534,6 @@ class MapBuilder:
         total_info_matrix[6:,6:] += tag_info.matrix
         total_info_vector = (-2*rtJ + 2*linpoint.T @ JtJ).T
 
-        # print("tag info vector shape", tag_info.vector.shape)
-        # print("linpoint shape", linpoint.shape)
-        # print("jtj shape", JtJ.shape)
-        # print("rtJ shape", rtJ.shape)
-        # print("wtf shape", (linpoint.T @ JtJ).shape)
-        # print("total info vector", total_info_vector.shape)
-        # assert total_info_vector.shape == (12,1)
         total_info_vector[6:,:] += tag_info.vector
 
         lambda_cc = total_info_matrix[:6,:6]
@@ -472,15 +542,6 @@ class MapBuilder:
 
         nu_t = total_info_vector[6:,:]
         nu_c = total_info_vector[:6,:]
-
-        # print("DET TO VAR MSG==========")
-        # print("JtJ", JtJ)
-        # print("rtJ", rtJ)
-        # print("lambda_cc", lambda_cc)
-        # print("lambda_tt", lambda_tt)
-        # print("lambda_ct", lambda_ct)
-        # print("nu_c", nu_c)
-        # print("nu_t", nu_t)
 
         matrix_msg = lambda_cc - lambda_ct @ (np.linalg.solve(lambda_tt, lambda_ct.T))
         #                                        lambda_tt.inverse() @ lambda_tc
@@ -505,13 +566,14 @@ class MapBuilder:
         #              [ detectionB ]________\
         #              [ detectionC ]________\
         #                                    \
-        # ( view )_____[ detection  ]______( tag )
+        # ( tag )______[ detection  ]______( view )____[view prior]
         #    \_________[ detectionE ]
         #    \_________[ detectionF ]
         #    \_________[ detectionG ]
 
-        # get the message from the tag to the viewpoint
-        viewpoint_info = self.viewpoint_infos[viewpoint_idx] - self.detection_to_viewpoint_msgs[detection_idx]
+        # get the message from the viewpoint to the tag to the
+        viewpoint_prior = info6_from_gaussian(self.se3s_world_viewpoint[viewpoint_idx], 1.0/self.regularizer*np.eye(6, dtype=float))
+        viewpoint_info = self.viewpoint_infos[viewpoint_idx] - self.detection_to_viewpoint_msgs[detection_idx] + viewpoint_prior
 
         # marginalize out the viewpoint
         # and send into the tag
@@ -571,7 +633,7 @@ class MapBuilder:
         vector_msg = nu_t - lambda_ct.T @ np.linalg.solve(lambda_cc, nu_c)
         #                                     lambda_cc.inverse() @ nu_c
 
-        msg = self.tag_info_cls(vector_msg, matrix_msg)
+        msg = InfoState6(vector_msg, matrix_msg)
         self.tag_infos[tag_idx] -= self.detection_to_tag_msgs[detection_idx] # undo the previous message from this det
         self.detection_to_tag_msgs[detection_idx] = msg
         self.tag_infos[tag_idx] += msg # add on the current message from this det
