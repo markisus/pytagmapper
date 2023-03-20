@@ -237,6 +237,9 @@ def SO3_log_decomposed(SO3):
     sin_acos_htmo = (1.0 - htmo*htmo)**0.5
     omega_mat = 0.5/sin_acos_htmo * (SO3 - SO3.T)
     omega_hat = so3_to_vector(omega_mat)
+
+    assert np.all(np.isfinite(omega_hat))
+    
     return omega_hat, theta
 
 def SO3_log(SO3):
@@ -307,7 +310,6 @@ def se3_left_jacobian(se3):
     return result
 
 def x_cotx(x):
-    return x / np.tan(x)
     c2 = -1.0 / 3
     c4 = -1.0 / 45
     c6 = -2.0 / 945
@@ -336,6 +338,8 @@ def SE3_log(SE3):
     result = np.empty((6,1), float)
     result[:3,:] = omega_hat * theta
     result[3:,:] = v_theta
+
+    assert np.all(np.isfinite(result))
     return result
     
 def fix_SE3(SE3):

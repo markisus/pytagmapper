@@ -7,6 +7,8 @@ from pytagmapper.heuristics import *
 from pytagmapper.min_heap import MinHeap
 import cv2
 
+BIGVAL = 1e4
+
 def solvePnPWrapper(obj_points, img_points, camera_matrix):
     succ, rvec, tvec = cv2.solvePnP(obj_points, img_points, camera_matrix, None)
     if not succ:
@@ -80,7 +82,6 @@ class MapBuilder:
         self.viewpoint_infos = []
         self.viewpoint_changes = []
         self.tag_infos = []
-        self.tag_changes = []
 
         # list of (tag_idx, viewpoint_idx, tag_corners)
         self.detections = []
@@ -158,7 +159,7 @@ class MapBuilder:
         self.detection_rtJs.append(np.zeros(shape=(1,dim_detection_factor_input)))
         self.detection_to_viewpoint_msgs.append(InfoState6())
         self.detection_to_tag_msgs.append(InfoState6())
-        self.detection_errors.append(float('inf'))
+        self.detection_errors.append(BIGVAL)
         self.tag_detections[tag_idx].append(len(self.detections)-1)
         self.viewpoint_detections[viewpoint_idx].append(len(self.detections)-1)
 
@@ -301,11 +302,16 @@ class MapBuilder:
         tx_world_viewpoint = self.txs_world_viewpoint[viewpoint_idx]
         tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
 
+        # print("tag", self.tag_ids[tag_idx])
+        # print("viewpoint", self.viewpoint_ids[viewpoint_idx])
+        # print("tx_viewpoint_tag\n", tx_viewpoint_tag)
+
         tag_dir = tx_viewpoint_tag[:3,2].copy()
         to_tag = tx_viewpoint_tag[:3,3].copy()
         to_tag /= np.linalg.norm(to_tag)
         tag_dp = np.dot(tag_dir, to_tag)
         if tag_dp > 0:
+            # print("tag dp positive... tag not visible")
             # camera is looking at the back of tag
             # express a factor saying that the
             self.detection_jacobians[det_idx].fill(0)
@@ -313,7 +319,7 @@ class MapBuilder:
             self.detection_residuals[det_idx].fill(0)
             self.detection_JtJs[det_idx].fill(0)
             self.detection_rtJs[det_idx].fill(0)
-            self.detection_errors[det_idx] = 1000
+            self.detection_errors[det_idx] = BIGVAL
             return
 
         assert se3_world_viewpoint.shape == (6,1)
@@ -367,7 +373,7 @@ class MapBuilder:
             self.regularizer *= 25.0
 
         self.regularizer = max(self.regularizer, 1e-3)
-        self.regularizer = min(self.regularizer, 1e1)
+        self.regularizer = min(self.regularizer, 1e6)
 
         return curr_error < prev_error
 
@@ -387,10 +393,23 @@ class MapBuilder:
             self.detection_to_tag_msgs[detection_idx] = InfoState6()
             self.relinearize_detection(detection_idx)
 
-        self.variable_priorities.upsert(tag_idx, 0)
+        self.variable_priorities.upsert(('t', tag_idx), 0)
         
         # update the tag info ?
         # clear out all the messages to this tag ?
+
+    def reset_viewpoint(self, viewpoint_id, tx_world_viewpoint):
+        viewpoint_idx = self.viewpoint_id_to_idx[viewpoint_id]
+        self.se3s_world_viewpoint[viewpoint_idx] = SE3_log(tx_world_viewpoint)
+        self.txs_world_viewpoint[viewpoint_idx] = tx_world_viewpoint
+
+        for detection_idx in self.viewpoint_detections[viewpoint_idx]:
+            # reset the message to this viewpoint
+            self.detection_to_viewpoint_msgs[detection_idx] = InfoState6()
+            self.relinearize_detection(detection_idx)
+
+        self.variable_priorities.upsert(('v', viewpoint_idx), 0)
+    
 
     def prioritized_update(self):
         if not self.detections:
@@ -523,34 +542,37 @@ class MapBuilder:
         # Λc' = Λcc - Λct Λtt⁻¹ Λtc
         # ηc' = ηc - Λct Λtt⁻¹ ηt
 
-        linpoint = np.empty((12, 1))
-        linpoint[:6,:] = self.se3s_world_viewpoint[viewpoint_idx]
-        linpoint[6:,:] = self.se3s_world_tag[tag_idx]
-
         JtJ = self.detection_JtJs[detection_idx]
         rtJ = self.detection_rtJs[detection_idx]
+        if np.all(JtJ == 0):
+            # factor is constant => no-op
+            msg = InfoState6()
+        else:
+            linpoint = np.empty((12, 1))
+            linpoint[:6,:] = self.se3s_world_viewpoint[viewpoint_idx]
+            linpoint[6:,:] = self.se3s_world_tag[tag_idx]
 
-        total_info_matrix = 2*JtJ
-        total_info_matrix[6:,6:] += tag_info.matrix
-        total_info_vector = (-2*rtJ + 2*linpoint.T @ JtJ).T
+            total_info_matrix = 2*JtJ
+            total_info_matrix[6:,6:] += tag_info.matrix
+            total_info_vector = (-2*rtJ + 2*linpoint.T @ JtJ).T
 
-        total_info_vector[6:,:] += tag_info.vector
+            total_info_vector[6:,:] += tag_info.vector
 
-        lambda_cc = total_info_matrix[:6,:6]
-        lambda_ct = total_info_matrix[:6,6:]
-        lambda_tt = total_info_matrix[6:,6:]
+            lambda_cc = total_info_matrix[:6,:6]
+            lambda_ct = total_info_matrix[:6,6:]
+            lambda_tt = total_info_matrix[6:,6:]
 
-        nu_t = total_info_vector[6:,:]
-        nu_c = total_info_vector[:6,:]
+            nu_t = total_info_vector[6:,:]
+            nu_c = total_info_vector[:6,:]
 
-        matrix_msg = lambda_cc - lambda_ct @ (np.linalg.solve(lambda_tt, lambda_ct.T))
-        #                                        lambda_tt.inverse() @ lambda_tc
-        vector_msg = nu_c - lambda_ct @ np.linalg.solve(lambda_tt, nu_t)
-        #                                  lambda_tt.inverse() @ nu_t
-        assert nu_c.shape == (6,1)
-        assert vector_msg.shape == (6,1)
+            matrix_msg = lambda_cc - lambda_ct @ (np.linalg.solve(lambda_tt, lambda_ct.T))
+            #                                        lambda_tt.inverse() @ lambda_tc
+            vector_msg = nu_c - lambda_ct @ np.linalg.solve(lambda_tt, nu_t)
+            #                                  lambda_tt.inverse() @ nu_t
+            assert nu_c.shape == (6,1)
+            assert vector_msg.shape == (6,1)
 
-        msg = InfoState6(vector_msg, matrix_msg)
+            msg = InfoState6(vector_msg, matrix_msg)
 
         self.viewpoint_infos[viewpoint_idx] -= self.detection_to_viewpoint_msgs[detection_idx] # undo the previous message from this det
         self.viewpoint_infos[viewpoint_idx] += msg # add on the current message from this det
@@ -608,32 +630,37 @@ class MapBuilder:
         # Λt' = Λtt - Λtc Λcc⁻¹ Λct
         # ηt' = ηt - Λtc Λcc⁻¹ ηc
 
-        linpoint = np.empty((12, 1))
-        linpoint[:6,:] = self.se3s_world_viewpoint[viewpoint_idx]
-        linpoint[6:,:] = self.se3s_world_tag[tag_idx]
-
         JtJ = self.detection_JtJs[detection_idx]
         rtJ = self.detection_rtJs[detection_idx]
 
-        total_info_matrix = 2*JtJ
-        total_info_matrix[:6,:6] += viewpoint_info.matrix
+        if np.all(JtJ == 0):
+            msg = InfoState6()
+        else:
+            linpoint = np.empty((12, 1))
+            linpoint[:6,:] = self.se3s_world_viewpoint[viewpoint_idx]
+            linpoint[6:,:] = self.se3s_world_tag[tag_idx]
 
-        total_info_vector = (-2*rtJ + 2*linpoint.T @ JtJ).T
-        total_info_vector[:6,:] += viewpoint_info.vector
 
-        lambda_cc = total_info_matrix[:6,:6]
-        lambda_ct = total_info_matrix[:6,6:]
-        lambda_tt = total_info_matrix[6:,6:]
+            total_info_matrix = 2*JtJ
+            total_info_matrix[:6,:6] += viewpoint_info.matrix
 
-        nu_t = total_info_vector[6:,:]
-        nu_c = total_info_vector[:6,:]
+            total_info_vector = (-2*rtJ + 2*linpoint.T @ JtJ).T
+            total_info_vector[:6,:] += viewpoint_info.vector
 
-        matrix_msg = lambda_tt - lambda_ct.T @ (np.linalg.solve(lambda_cc, lambda_ct))
-        #                                        lambda_cc.inverse() @ lambda_ct
-        vector_msg = nu_t - lambda_ct.T @ np.linalg.solve(lambda_cc, nu_c)
-        #                                     lambda_cc.inverse() @ nu_c
+            lambda_cc = total_info_matrix[:6,:6]
+            lambda_ct = total_info_matrix[:6,6:]
+            lambda_tt = total_info_matrix[6:,6:]
 
-        msg = InfoState6(vector_msg, matrix_msg)
+            nu_t = total_info_vector[6:,:]
+            nu_c = total_info_vector[:6,:]
+
+            matrix_msg = lambda_tt - lambda_ct.T @ (np.linalg.solve(lambda_cc, lambda_ct))
+            #                                        lambda_cc.inverse() @ lambda_ct
+            vector_msg = nu_t - lambda_ct.T @ np.linalg.solve(lambda_cc, nu_c)
+            #                                     lambda_cc.inverse() @ nu_c
+
+            msg = InfoState6(vector_msg, matrix_msg)
+
         self.tag_infos[tag_idx] -= self.detection_to_tag_msgs[detection_idx] # undo the previous message from this det
         self.detection_to_tag_msgs[detection_idx] = msg
         self.tag_infos[tag_idx] += msg # add on the current message from this det

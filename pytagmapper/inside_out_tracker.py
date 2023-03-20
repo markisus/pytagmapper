@@ -60,6 +60,8 @@ class InsideOutTracker:
                  tx_world_viewpoint = None, max_regularizer = 1e9):
         self.tag_locations = map_data['tag_locations']        
         self.camera_matrix = np.array(camera_matrix)
+        fx, fy, cx, cy = camera_matrix[0,0], camera_matrix[1,1], camera_matrix[0,2], camera_matrix[1,2]
+        self.camparams = np.array([[ fx, fy, cx, cy ]]).T
         self.tag_side_lengths = map_data['tag_side_lengths']
         self.default_tag_side_length = self.tag_side_lengths['default']
         self.default_corners_mat = get_corners_mat(self.default_tag_side_length)
@@ -112,7 +114,7 @@ class InsideOutTracker:
 
         for tag_id, tx_world_tag in self.txs_world_tag.items():
             tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
-            projected_corners, _, _ = project(self.camera_matrix, tx_viewpoint_tag, self.get_corners_mat(tag_id))
+            projected_corners, _, _ = project_points(self.camparams, SE3_log(tx_world_viewpoint), SE3_log(tx_world_tag), self.get_corners_mat(tag_id))
             tag_ids.append(tag_id)
             tag_corners.append(projected_corners)
 
@@ -134,7 +136,7 @@ class InsideOutTracker:
 
             corners = np.array(corners).reshape((8,1))
             tx_viewpoint_tag = SE3_inv(tx_world_viewpoint) @ tx_world_tag
-            projected_corners, dcorners_dcamera, _ = project(self.camera_matrix, tx_viewpoint_tag, self.get_corners_mat(tag_id))
+            projected_corners, dcorners_dcamera, _ = project_points(self.camparams, SE3_log(tx_world_viewpoint), SE3_log(tx_world_tag), self.get_corners_mat(tag_id))
 
             residual = projected_corners - corners
             JtJ += dcorners_dcamera.T @ dcorners_dcamera

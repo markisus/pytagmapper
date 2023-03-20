@@ -1,12 +1,13 @@
 # WIP
 from hack_sys_path import *
 
+import random
 from gl_util import GlRgbTexture
 from imgui_sdl_wrapper import ImguiSdlWrapper
 from overlayable import *
 from pytagmapper.data import *
 from pytagmapper.geometry import *
-from pytagmapper.project import project, get_corners_mat
+from pytagmapper.project import project_points
 from pytagmapper.map_builder import *
 from misc import *
 import math
@@ -59,6 +60,26 @@ INIT_TXS_CAMERA_TAG = [
     ]),
 ]
 
+def overlay_coordinate_frame(overlayable, corners, frame_id, thickness = 1):
+    side_colors = [
+        imgui.get_color_u32_rgba(1,0,0,1),
+        imgui.get_color_u32_rgba(0,1,0,1),
+        imgui.get_color_u32_rgba(0,0,1,1),
+    ]
+
+    for i in range(3):
+        color = side_colors[i]
+        p0 = corners[:,0].flatten()
+        p1 = corners[:,i+1].flatten()
+        overlay_line(overlayable,
+                     p0[0], p0[1], p1[0], p1[1],
+                     color, thickness)
+
+    acenter = (np.sum(corners, axis=1)/4).flatten()        
+    if frame_id is not None:
+        overlay_text(overlayable, acenter[0], acenter[1], imgui.get_color_u32_rgba(1,0,0,1), str(frame_id))
+
+
 def overlay_tag(overlayable, tag_corners, tag_id = None, thickness = 1):
     side_colors = [
         imgui.get_color_u32_rgba(1,0,0,1),
@@ -85,6 +106,8 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Interactive map builder")
     parser.add_argument('data_dir', type=str, help='input data directory')
+    parser.add_argument('--mode', type=str, default='3d')
+
     args = parser.parse_args()
 
     rng = default_rng()
@@ -96,7 +119,7 @@ if __name__ == "__main__":
 
     map_builder = MapBuilder(data["camera_matrix"],
                              data["tag_side_lengths"],
-                             '3d')
+                             args.mode)
 
     added_image_ids = []
     next_image_idx = 0
@@ -131,6 +154,13 @@ if __name__ == "__main__":
     essential_ts = {}
     essential_ps = {}
 
+    worldcam_x = 0
+    worldcam_y = 0
+    worldcam_z = 1.5
+    worldcam_rx = 0
+    worldcam_ry = 0
+    worldcam_rz = 0
+
     while app.running:
         app.main_loop_begin()
         imgui.begin("control")
@@ -156,12 +186,66 @@ if __name__ == "__main__":
             next_image_idx += 1
 
         if optimize:
-            map_builder.send_detection_to_viewpoint_msgs()
-            map_builder.send_detection_to_tag_msgs()
-            if map_builder_step % 30 == 0:
-                map_builder.update()
+            # map_builder.send_detection_to_viewpoint_msgs()
+            # map_builder.send_detection_to_tag_msgs()
+            # if map_builder_step % 10 == 0:
+            #     map_builder.update()
+            map_builder.prioritized_update()
             map_builder_step += 1
         imgui.end()
+
+        txs_world_tag = map_builder.txs_world_tag
+        txs_world_viewpoint = map_builder.txs_world_viewpoint
+
+        if imgui.begin("map"):
+            display_width = imgui.get_window_width() - 10
+            display = draw_overlayable_rectangle(1000, 1000, display_width)
+
+            _, worldcam_x = imgui.slider_float("worldcam x", worldcam_x, -1, 1)
+            _, worldcam_y = imgui.slider_float("worldcam y", worldcam_y, -1, 1)
+            _, worldcam_z = imgui.slider_float("worldcam z", worldcam_z, 0.1, 5)
+            _, worldcam_rx = imgui.slider_float("worldcam rx", worldcam_rx, -1, 1)
+            _, worldcam_ry = imgui.slider_float("worldcam ry", worldcam_ry, -1, 1)
+            _, worldcam_rz = imgui.slider_float("worldcam rz", worldcam_rz, -1, 1)
+            
+            tx_world_worldcam = np.array([
+                [-1, 0, 0, worldcam_x],
+                [0, 1, 0, worldcam_y],
+                [0, 0, -1, worldcam_z],
+                [0, 0, 0, 0],
+            ])
+
+            tx_worldrot_world = se3_exp(np.array([[worldcam_rx, worldcam_ry, worldcam_rz, 0, 0, 0]]).T)
+            tx_world_worldcam = tx_worldrot_world @ tx_world_worldcam
+
+            se3_world_worldcam = SE3_log(tx_world_worldcam)
+
+            for tag_idx, se3_world_tag in enumerate(map_builder.se3s_world_tag):
+                points, _, _ = project_points(map_builder.camparams,
+                                              se3_world_worldcam,
+                                              se3_world_tag,
+                                              map_builder.corners_mats[tag_idx])
+                # print("points for tag ", map_builder.tag_ids[tag_idx], "was ", points.T)
+                # print("tx world tag was\n", tx_world_tag)
+                # print("se3 world tag was\n", se3_world_tag.T)
+                overlay_tag(display, points.reshape((2,4), order='F'), map_builder.tag_ids[tag_idx])
+
+
+            for viewpoint_idx, se3_world_viewpoint in enumerate(map_builder.se3s_world_viewpoint):
+                # xyzw format
+                frame = np.array([
+                    [0.0, 0.0, 0.0, 1.0],
+                    [0.01, 0.0, 0.0, 1.0],
+                    [0.0, 0.01, 0.0, 1.0],
+                    [0.0, 0.0, 0.01, 1.0]
+                ]).T
+                frame_projected, _, _ = project_points(map_builder.camparams,
+                                                       se3_world_worldcam,
+                                                       se3_world_viewpoint,
+                                                       frame)                                                       
+                overlay_coordinate_frame(display, frame_projected.reshape((2,4), order='F'), map_builder.viewpoint_ids[viewpoint_idx])
+                                                       
+            imgui.end()
 
         imgui.begin("images")
         display_width = imgui.get_window_width() - 10
@@ -169,171 +253,10 @@ if __name__ == "__main__":
             imgui.push_id(str(image_idx))
             imgui.text(f"image {image_id}")            
 
-            if image_idx != 0 and image_id not in essential_matrices:
-                if imgui.button("compute essential matrix"):
-                    # build point correspondences
-                    other_image_id = added_image_ids[0]
-                    other_viewpoint = data["viewpoints"][other_image_id]
-                    this_viewpoint = data["viewpoints"][image_id]
-                    same_tag_ids = other_viewpoint.keys() & this_viewpoint.keys()
-
-                    inv_camera_matrix = np.linalg.inv(map_builder.camera_matrix)
-
-                    pts1 = []
-                    pts2 = []
-
-                    for tag_id in same_tag_ids:
-                        for i in range(4):
-                            this_xy = this_viewpoint[tag_id][2*i:2*i+2]
-                            other_xy = other_viewpoint[tag_id][2*i:2*i+2]
-                            pts1.append(other_xy)
-                            pts2.append(this_xy)
-
-                    pts1 = np.array(pts1)
-                    pts2 = np.array(pts2)
-
-                    pts1_normalized = np.empty((3, 12))
-                    pts1_normalized[2,:] = 1
-                    pts1_normalized[:2,:] = pts1.T
-                    pts1_normalized = inv_camera_matrix @ pts1_normalized
-
-                    pts2_normalized = np.empty((3, 12))
-                    pts2_normalized[2,:] = 1
-                    pts2_normalized[:2,:] = pts2.T
-                    pts2_normalized = inv_camera_matrix @ pts2_normalized
-
-                    essential_ps[image_id] = (pts1_normalized, pts2_normalized)
-
-                    e, mask = cv2.findEssentialMat(pts1, pts2, map_builder.camera_matrix)
-
-                    for i in range(pts1.shape[0]):
-                        print("checking essential",i)
-                        pt1 = pts1_normalized[:,i]
-                        pt2 = pts2_normalized[:,i]
-                        print("pt1", pt1.T)
-                        print("pt2", pt2.T)
-                        res = pt2.T @ e @ pt1
-                        print("\tres", res)
-                    
-                    essential_matrices[image_id] = e
-                    result = cv2.recoverPose(e, pts1, pts2, map_builder.camera_matrix, distanceThresh=100)
-                    R = result[1]
-                    t = result[2]
-                    essential_rs[image_id] = R
-                    essential_ts[image_id] = t
-                    mask = result[3]
-                    triangulations = result[4]
-                    triangulations /= triangulations[3,:]
-
-                    tx_othercam_thiscam = np.zeros((4,4))
-                    tx_othercam_thiscam[:3,:3] = R
-                    tx_othercam_thiscam[:3,3] = t.T
-                    tx_othercam_thiscam[3,3] = 1
-
-                    # project triangulations into othercam
-                    projected = triangulations[:3,:].copy()
-                    projected /= projected[2,:]
-
-                    projected2 = SE3_inv(tx_othercam_thiscam) @ triangulations
-                    projected2 = projected2[:3,:].copy()
-                    projected2 /= projected2[2,:]
-
-                    print("projected\n", projected.T)
-                    print("pts1 normalized\n", pts1_normalized.T)
-                    
-                    print("projected2\n", projected2.T)
-                    print("pts2 normalized\n", pts2_normalized.T)
-                    
-                    print("tx_othercam_thiscam\n", tx_othercam_thiscam)
-                    print("recoverpose result\n", result)
-                    print("triangulations shape\n", triangulations.shape)
-                    print("triangulations\n", triangulations.T)
-
-            if image_id in essential_matrices:
-                imgui.text("e")
-                imgui.text(str(essential_matrices[image_id]))
-                # compute tx_other_this
-
-                R = essential_rs[image_id]
-                t = essential_ts[image_id]
-                tx_othercam_thiscam = np.zeros((4,4))
-                tx_othercam_thiscam[:3,:3] = R
-                tx_othercam_thiscam[:3,3] = t.T
-                tx_othercam_thiscam[3,3] = 1
-
-                imgui.text("tx_othercam_thiscam from essential")
-                imgui.text(str(tx_othercam_thiscam))
-
-                # get othercam thiscam from map_builder
-                tx_world_othercam = map_builder.txs_world_viewpoint[0]
-                tx_world_thiscam = map_builder.txs_world_viewpoint[map_builder.viewpoint_id_to_idx[image_id]]
-
-                tx_othercam_thiscam_mb = SE3_inv(tx_world_othercam) @ tx_world_thiscam
-
-                R_mb = tx_othercam_thiscam_mb[:3,:3].copy()
-                t_mb = tx_othercam_thiscam[:3,3].copy()
-                tx_mb = so3_to_matrix(np.array([t_mb]).T)
-                e_mb = tx_mb @ R_mb
-
-                imgui.text("essential e_mb")
-                imgui.text(str(e_mb))
-
-                p1s, p2s = essential_ps[image_id]
-                for i in range(p1s.shape[1]):
-                    pt1 = p1s[:,i]
-                    pt2 = p2s[:,i]
-                    res = pt1.T @ e_mb @ pt2
-                    imgui.text(f"\tres{i}: p1 {pt1.T} p2 {pt2.T} res {res}")
-
-                imgui.text("tx_othercam_thiscam from mb")
-                imgui.text(str(tx_othercam_thiscam_mb))
-                imgui.text("tx_thiscam_othercam from mb")                
-                imgui.text(str(SE3_inv(tx_othercam_thiscam_mb)))
-                
-
-            for i, tx_camera_world in enumerate(INIT_TXS_CAMERA_TAG):
-                if imgui.button(f"reinit {i}"):
-                    map_builder.txs_world_viewpoint[image_idx] = tx_camera_world
-                if i+1 != len(INIT_TXS_CAMERA_TAG):
-                    imgui.same_line()
+            tx_viewpoint_world = SE3_inv(txs_world_viewpoint[image_idx])
             
-            should_update = image_idx in update_viewpoint_idxs
-            _, should_update = imgui.checkbox("update viewpoint", should_update)
-            if should_update:
-                update_viewpoint_idxs.add(image_idx)
-            elif image_idx in update_viewpoint_idxs:
-                update_viewpoint_idxs.remove(image_idx)
-
-            if image_idx in update_viewpoint_idxs:
-                map_builder.update_viewpoint(image_idx)
-
-            tx_viewpoint_world = SE3_inv(map_builder.txs_world_viewpoint[image_idx])
-            
-            for det_idx in range(*map_builder.viewpoint_detections[image_idx]):
-                detection = map_builder.detections[det_idx]
-                tag_idx, viewpoint_idx, tag_corners = detection
-                tag_id = map_builder.tag_ids[tag_idx]
-
-                update_tag = tag_idx in update_tag_idxs
-                _, update_tag = imgui.checkbox(f"update tag {tag_id}", update_tag)
-                imgui.same_line()
-                if imgui.button(f"reinit tag {tag_id}"):
-                    map_builder.txs_world_tag[tag_idx] = np.eye(map_builder.tx_world_tag_dim)
-
-                if update_tag:
-                    update_tag_idxs.add(tag_idx)
-                elif tag_idx in update_tag_idxs:
-                    update_tag_idxs.remove(tag_idx)
-
-                if tag_idx in update_tag_idxs:
-                    map_builder.update_tag(tag_idx)
-
-            if imgui.button("update none"):
-                update_tag_idxs = set()
-                update_viewpoint_idxs = set()
-
             imgui.text("tx_world_viewpoint")
-            imgui.text(str(map_builder.txs_world_viewpoint[image_idx]))
+            imgui.text(str(txs_world_viewpoint[image_idx]))
 
             tid, w, h = app.get_image(image_id)
             image = draw_overlayable_image(tid, w, h, display_width)
@@ -361,9 +284,9 @@ if __name__ == "__main__":
 
                 if quad_contains_pt(projections.reshape((2,4), order='F'), (sx, sy)):
                     # calculate tx_camera_tag
-                    tx_viewpoint_tag = tx_viewpoint_world @ map_builder.txs_world_tag[tag_idx]
+                    tx_viewpoint_tag = tx_viewpoint_world @ txs_world_tag[tag_idx]
                     
-                    imgui.set_tooltip(f"{tag_id}\n{tx_viewpoint_tag}")
+                    imgui.set_tooltip(f"{tag_id}\n\ntx_world_tag\n{txs_world_tag[tag_idx]}\n\ntx_viewpoint_tag\n{tx_viewpoint_tag}")
                     if imgui.is_mouse_clicked():
                         tag_clicked = tag_idx
 
@@ -372,7 +295,7 @@ if __name__ == "__main__":
                     delta[0,0] = wx
                     delta[1,0] = wy
                     delta[2,0] = wz
-                    ptx_viewpoint_tag = tx_viewpoint_world @ map_builder.txs_world_tag[tag_idx] @ se3_exp(delta)
+                    ptx_viewpoint_tag = tx_viewpoint_world @ txs_world_tag[tag_idx] @ se3_exp(delta)
                     corners = map_builder.camera_matrix @ (ptx_viewpoint_tag @ map_builder.corners_mats[tag_idx])[:3,:]
                     corners[:2,:] /= corners[2,:]
                     overlay_polyline(image, corners[:2,:], side_colors, 1)
@@ -395,7 +318,8 @@ if __name__ == "__main__":
                 wz = 0
                 imgui.end()
             else:
-                imgui.text(str(map_builder.tag_ids[perturb_tag_idx]))
+                tag_id = map_builder.tag_ids[perturb_tag_idx]
+                imgui.text(str(tag_id))
                 
                 _, wx = imgui.slider_float("wx", wx, -math.pi, math.pi)
                 _, wy = imgui.slider_float("wy", wy, -math.pi, math.pi)
@@ -409,7 +333,8 @@ if __name__ == "__main__":
                     delta[0,0] = wx
                     delta[1,0] = wy
                     delta[2,0] = wz
-                    map_builder.txs_world_tag[perturb_tag_idx] =  map_builder.txs_world_tag[perturb_tag_idx] @ se3_exp(delta)
+                    map_builder.reset_tag(tag_id, txs_world_tag[perturb_tag_idx] @ se3_exp(delta))
+                    # txs_world_tag[perturb_tag_idx] =  txs_world_tag[perturb_tag_idx] @ se3_exp(delta)
                     wx = 0
                     wy = 0
                     wz = 0

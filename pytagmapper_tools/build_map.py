@@ -37,10 +37,10 @@ def add_viewpoint(source_data, viewpoint_id, map_builder, total_viewpoints):
             print(f"[{len(map_builder.viewpoint_ids)}/{total_viewpoints}] change {change_pct*100:#.4g}% error {error:#.4g}\r", end='')            
             sys.stdout.flush()
             prev_error = error
-            for i in range(20):
-                map_builder.send_detection_to_viewpoint_msgs()
-                map_builder.send_detection_to_tag_msgs()
-            improved = map_builder.update()
+            # for i in range(20):
+            #     map_builder.send_detection_to_viewpoint_msgs()
+            #     map_builder.send_detection_to_tag_msgs()
+            improved = map_builder.prioritized_update() or True
             error = map_builder.get_avg_detection_error()
             delta = max(prev_error - error, 0)
             change_pct = delta/prev_error
@@ -118,10 +118,10 @@ if __name__ == "__main__":
             print(f"[final] change {change_pct*100:#.4g}% error {error:#.4g}\r", end='')
             sys.stdout.flush()
             prev_error = error
-            for i in range(20):
-                map_builder.send_detection_to_viewpoint_msgs()
-                map_builder.send_detection_to_tag_msgs()
-            improved = map_builder.update()
+            # for i in range(20):
+            #     map_builder.send_detection_to_viewpoint_msgs()
+            #     map_builder.send_detection_to_tag_msgs()
+            map_builder.prioritized_update()
             error = map_builder.get_avg_detection_error()
             delta = max(prev_error - error, 0)
             change_pct = delta/prev_error
@@ -138,23 +138,23 @@ if __name__ == "__main__":
     data.save_viewpoints_json(
         output_dir,
         map_builder.viewpoint_ids,
-        map_builder.txs_world_viewpoint())
+        map_builder.txs_world_viewpoint)
 
-    if args.mode == '3d':
-        data.save_map3d_json(
-            output_dir,
-            map_builder.tag_side_lengths,
-            map_builder.tag_ids,
-            map_builder.txs_world_tag())
-    elif args.mode == '2.5d':
-        data.save_map2p5d_json(
-            output_dir,
-            map_builder.tag_side_lengths,
-            map_builder.tag_ids,
-            map_builder.txs_world_tag())
-    else:
-        data.save_map_json(
-            output_dir,
-            map_builder.tag_side_lengths,
-            map_builder.tag_ids,
-            map_builder.txs_world_tag())    
+    # if args.mode == '3d':
+    data.save_map3d_json(
+        output_dir,
+        map_builder.tag_side_lengths,
+        map_builder.tag_ids,
+        map_builder.txs_world_tag)
+    # elif args.mode == '2.5d':
+    #     data.save_map2p5d_json(
+    #         output_dir,
+    #         map_builder.tag_side_lengths,
+    #         map_builder.tag_ids,
+    #         map_builder.txs_world_tag())
+    # else:
+    #     data.save_map_json(
+    #         output_dir,
+    #         map_builder.tag_side_lengths,
+    #         map_builder.tag_ids,
+    #         map_builder.txs_world_tag())    
