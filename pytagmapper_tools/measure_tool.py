@@ -18,6 +18,7 @@ import numpy as np
 import os
 import math
 from collections import defaultdict
+from aruco import ArucoDetector
 
 def project_points(camera_matrix, tx_camera_tag, xys):
     pts = np.empty((4,len(xys)))
@@ -266,8 +267,6 @@ def main():
                                               3)))
 
     video = None
-    aruco_dict = None
-    aruco_params = None
     tracker = None
     tracker_initted = False
 
@@ -310,8 +309,7 @@ def main():
         app.add_image("video", np.zeros((camera_height,
                                          camera_width, 3)))
 
-        aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
-        aruco_params = cv2.aruco.DetectorParameters_create()
+        aruco_detector = ArucoDetector()
         tracker = InsideOutTracker(video_camera_matrix, map_data, max_regularizer = 1e3)
 
     HIGHLIGHT_COLOR = imgui.get_color_u32_rgba(1,0.5,0.2,1)
@@ -344,10 +342,7 @@ def main():
                 app.update_image("video", rgb_image)
 
                 # update tracker
-                aruco_corners, aruco_ids, aruco_rejected = cv2.aruco.detectMarkers(
-                    image,
-                    aruco_dict,
-                    parameters=aruco_params)
+                aruco_corners, aruco_ids, aruco_rejected = aruco_detector.detectMarkers(image)
                 aruco_ids = aruco_ids if aruco_ids is not None else [] # aruco_ids is sometimes annoyingly None
 
                 aruco_corners = [c[0] for c in aruco_corners]

@@ -11,16 +11,19 @@ from aruco import ArucoDetector
 
 def main():
     parser = argparse.ArgumentParser(description='Demo inside out tracking on a map.')
-    parser.add_argument('--camera-matrix-dir', type=str, help='directory containing camera_matrix.txt', default='.')
+    parser.add_argument('--camera-matrix-dir', type=str, help='directory containing camera_matrix.txt if not using --realsense', default='.')
     parser.add_argument('map_dir', type=str, help='map directory containing map.json')
     parser.add_argument('--width', type=int, help='camera stream width', default=0)
     parser.add_argument('--height', type=int, help='camera stream height', default=0)
     parser.add_argument('--device', type=int, help='camera device', default=0)
+    parser.add_argument("--realsense", "-rs", action="store_true", help="use pyrealsense api instead of cv2 for video streaming", default=False)
+    
     args = parser.parse_args()
 
     map_data = load_map(args.map_dir)
     map_type = map_data['map_type']
-    camera_matrix = load_camera_matrix(args.camera_matrix_dir)
+    if not args.realsense:
+        camera_matrix = load_camera_matrix(args.camera_matrix_dir)
     aruco_detector = ArucoDetector()
 
     # BGR format
@@ -82,27 +85,59 @@ def main():
         [1, 1, 1, 1]
     ], dtype=np.float64)
     axes[:3,:] *= 0.1
-    
-    camera = cv2.VideoCapture(args.device, cv2.CAP_DSHOW)
-    if args.width:
-        camera.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    if args.height:
-        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+
+    if args.realsense:
+        print("Using realsense")
+        import pyrealsense2 as rs
+        rs_pipeline = rs.pipeline()
+        rs_config = rs.config()
+        if not args.width:
+            camera_width = 640
+            camera_height = 480
+        else:
+            camera_width = args.width
+            camera_height = args.height
+        rs_config.enable_stream(rs.stream.color,
+                                camera_width, camera_height,
+                                rs.format.bgr8,
+                                30)
+        selection = rs_pipeline.start(rs_config)
+        intrinsics = selection.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        fx, fy, cx, cy, = intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy
+        rs_camera_matrix = np.array([
+            [fx, 0, cx],
+            [ 0, fy, cy],
+            [ 0, 0, 1],
+        ])
+
+        camera_matrix = rs_camera_matrix
+        if (args.camera_matrix_dir):
+            print("Ignoring camera matrix directory, using realsense camera matrix\n", camera_matrix)
+    else:
+        camera = cv2.VideoCapture(args.device, cv2.CAP_DSHOW)
+        if args.width:
+            camera.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
+        if args.height:
+            camera.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
 
     tracker_initted = False
     tracker = InsideOutTracker(camera_matrix, map_data)
-
     mv_x = RollingMeanVar(10)
     mv_y = RollingMeanVar(10)
     mv_z = RollingMeanVar(10)
 
     while True:
-        ret, frame = camera.read()
-        if not ret:
-            continue
+        if not args.realsense:
+            ret, frame = camera.read()
+            if not ret:
+                continue
+        else:
+            frames = rs_pipeline.wait_for_frames()
+            color_frame = frames.get_color_frame()
+            frame = np.array(color_frame.get_data(), np.uint8)
 
         aruco_corners, aruco_ids, aruco_rejected = \
-            aruco_detector.detectMarkers(frame, aruco_dict, parameters=aruco_params)
+            aruco_detector.detectMarkers(frame)
 
         if aruco_corners is None:
             aruco_corners = []
@@ -218,7 +253,8 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    camera.release()
+    if not args.realsense:
+        camera.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
