@@ -3,7 +3,7 @@ pytagmapper
 
 pytagmapper is a python3 SLAM library for square fiducial tags in the style of AprilTag and ArUco tags. Given a set tags with unknown poses, and a set of pixel detections in images from unknown camera views, pytagmapper will back out both the pose of each tag and the pose of each camera view.  
 
-**Important:** pytagmapper assumes zero distortion (simple pinhole model with 3x3 camera matrix) so if your camera has significant distortion, you will have to undistort images as a preprocessing step. See this [opencv tutorial](https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html) for more information about how to produce an undistorted 3x3 camera matrix. Be careful to disable any auto-focus features of your camera.  
+**Important:** pytagmapper assumes zero distortion (simple pinhole model with 3x3 camera matrix) so if your camera has significant distortion, you will have to undistort images as a preprocessing step. See this [opencv tutorial](https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html) for more information about how to produce an undistorted 3x3 camera matrix and undistorted images. Be careful to disable any auto-focus features of your camera.  
 
 Demo
 ====
