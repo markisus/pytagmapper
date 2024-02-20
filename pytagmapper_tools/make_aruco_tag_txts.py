@@ -23,7 +23,7 @@ def main():
     for file_id, image_path in image_paths.items():
         image = cv2.imread(image_path)
         aruco_corners, aruco_ids, aruco_rejected = \
-            aruco_detector.detectMarkers(image, aruco_dict, parameters=aruco_params)
+            aruco_detector.detectMarkers(image)
 
         with open(os.path.join(args.image_dir, f"tags_{file_id}.txt"), "w") as f:
             for tag_idx, tag_id in enumerate(aruco_ids):
