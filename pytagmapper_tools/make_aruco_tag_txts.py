@@ -2,6 +2,7 @@ from hack_sys_path import *
 
 import argparse
 from pytagmapper.data import *
+from aruco import ArucoDetector
 import cv2
 
 def main():
@@ -11,8 +12,7 @@ def main():
     args = parser.parse_args()
     
     image_paths = get_image_paths(args.image_dir)
-    aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
-    aruco_params = cv2.aruco.DetectorParameters_create()
+    aruco_detector = ArucoDetector()
 
     # BGR format
     aruco_side_colors = [(0, 0, 255),
@@ -23,7 +23,7 @@ def main():
     for file_id, image_path in image_paths.items():
         image = cv2.imread(image_path)
         aruco_corners, aruco_ids, aruco_rejected = \
-            cv2.aruco.detectMarkers(image, aruco_dict, parameters=aruco_params)
+            aruco_detector.detectMarkers(image, aruco_dict, parameters=aruco_params)
 
         with open(os.path.join(args.image_dir, f"tags_{file_id}.txt"), "w") as f:
             for tag_idx, tag_id in enumerate(aruco_ids):

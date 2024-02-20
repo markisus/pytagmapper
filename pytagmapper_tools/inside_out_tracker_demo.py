@@ -7,6 +7,7 @@ from pytagmapper.geometry import *
 from pytagmapper.project import *
 from pytagmapper.inside_out_tracker import InsideOutTracker
 from pytagmapper.rolling_mean_var import RollingMeanVar
+from aruco import ArucoDetector
 
 def main():
     parser = argparse.ArgumentParser(description='Demo inside out tracking on a map.')
@@ -20,8 +21,7 @@ def main():
     map_data = load_map(args.map_dir)
     map_type = map_data['map_type']
     camera_matrix = load_camera_matrix(args.camera_matrix_dir)
-    aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
-    aruco_params = cv2.aruco.DetectorParameters_create()
+    aruco_detector = ArucoDetector()
 
     # BGR format
     aruco_side_colors = [(0, 0, 255),
@@ -102,7 +102,7 @@ def main():
             continue
 
         aruco_corners, aruco_ids, aruco_rejected = \
-            cv2.aruco.detectMarkers(frame, aruco_dict, parameters=aruco_params)
+            aruco_detector.detectMarkers(frame, aruco_dict, parameters=aruco_params)
 
         if aruco_corners is None:
             aruco_corners = []

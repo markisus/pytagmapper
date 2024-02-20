@@ -9,6 +9,7 @@ from gl_util import GlRgbTexture
 import os
 import argparse
 from overlayable import *
+from aruco import ArucoDetector
 import numpy as np
 
 def overlay_aruco_corners(overlayable, aruco_ids, aruco_corners):
@@ -122,9 +123,8 @@ def main():
             [ 0, fy, cy],
             [ 0, 0, 1],
         ])
-        
-    aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_ARUCO_ORIGINAL)
-    aruco_params = cv2.aruco.DetectorParameters_create()
+
+    aruco_detector = ArucoDetector()
 
     ctx = AppContext()
     ctx.captures = []
@@ -154,10 +154,7 @@ def main():
                 ret = False
 
         if ret:
-            aruco_corners, aruco_ids, aruco_rejected = cv2.aruco.detectMarkers(
-                ctx.image,
-                aruco_dict,
-                parameters=aruco_params)
+            aruco_corners, aruco_ids, aruco_rejected = aruco_detector.detectMarkers(ctx.image)
             aruco_ids = aruco_ids if aruco_ids is not None else [] # aruco_ids is sometimes annoyingly None
         else:
             ctx.image = empty_image
