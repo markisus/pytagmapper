@@ -24,7 +24,7 @@ Create a directory `mkdir ~/my_map_data`.
 Calibrate your camera and save its 3x3 calibration matrix into a file `~/my_map_data/camera_matrix.txt`.  
 Print some tags from https://tn1ck.github.io/aruco-print/ and tape them down to a table in various positions. Save the tag side length in meters into a file `my_map_data/tag_side_length.txt`.  
 Take undistorted images of this scene using the and save those images as `~/my_map_data/image_0.png`, `~/my_map_data/image_1.png`, ... etc.  
-Run `python make_aruco_tag_txts.py ~/my_map_data --show_tags` to generate the `~/my_map_data/tags_0.txt`, `~/my_map_data/tags_1.txt`, .. etc.  
+Run `python make_aruco_tag_txts.py ~/my_map_data --show-detections` to generate the `~/my_map_data/tags_0.txt`, `~/my_map_data/tags_1.txt`, .. etc.  
   
 Then build and display the map. `build_map.py` takes optional argument `--mode` which can be one of 2d, 2.5d, or 3d.
 
