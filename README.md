@@ -3,6 +3,8 @@ pytagmapper
 
 pytagmapper is a python3 SLAM library for square fiducial tags in the style of AprilTag and ArUco tags. Given a set tags with unknown poses, and a set of pixel detections in images from unknown camera views, pytagmapper will back out both the pose of each tag and the pose of each camera view.  
 
+**Important:** pytagmapper assumes zero distortion (simple pinhole model with 3x3 camera matrix) so if your camera has significant distortion, you will have to undistort images as a preprocessing step. See this [opencv tutorial](https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html) for more information about how to produce an undistorted 3x3 camera matrix. Be careful to disable any auto-focus features of your camera.  
+
 Demo
 ====
 This [demo](https://github.com/markisus/pytagmapper/tree/main/DEMO.md) creates a map out of the images located in the [example_data](https://github.com/markisus/pytagmapper/tree/main/example_data) folder and runs inside out tracking.
@@ -19,7 +21,7 @@ See [example_data](https://github.com/markisus/pytagmapper/tree/main/example_dat
 Prepare Your Own Input Data Using ArUco
 ====
 Create a directory `mkdir ~/my_map_data`.  
-Calibrate your camera and save its 3x3 calibration matrix into a file `~/my_map_data/camera_matrix.txt`. pytagmapper assumes zero distortion so if your camera has significant distortion, you will have to undistort as a preprocessing step.  
+Calibrate your camera and save its 3x3 calibration matrix into a file `~/my_map_data/camera_matrix.txt`.  
 Print some tags from https://tn1ck.github.io/aruco-print/ and tape them down to a table in various positions. Save the tag side length in meters into a file `my_map_data/tag_side_length.txt`.  
 Take undistorted images of this scene using the and save those images as `~/my_map_data/image_0.png`, `~/my_map_data/image_1.png`, ... etc.  
 Run `python make_aruco_tag_txts.py ~/my_map_data --show_tags` to generate the `~/my_map_data/tags_0.txt`, `~/my_map_data/tags_1.txt`, .. etc.  
@@ -56,7 +58,9 @@ pytagmapper builds the map by adding in viewpoints to the optimizer one at a tim
     {
         'tag_side_length': (float),
         'tag_locations': {
-            tag_id (str): [x (float), y (float), yaw (float, radians)],
+            tag_id (str): [x (float), y (float), yaw (float, radians)], # 2d mode
+            tag_id (str): [x (float), y (float), z(float), yaw (float, radians)], # 2.5d mode
+            tag_id (str): (row major 4x4 pose matrix as list of lists), # 3d mode
             ...
          }
     }
